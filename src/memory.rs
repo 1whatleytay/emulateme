@@ -10,12 +10,24 @@ pub enum MemoryError {
     PpuError(PpuMemoryError)
 }
 
-pub struct Memory<'a> {
+pub trait Controller {
+    fn read(&mut self) -> u8;
+}
+
+#[derive(Default)]
+pub struct NoController;
+
+impl Controller for NoController {
+    fn read(&mut self) -> u8 { 0 }
+}
+
+pub struct Memory<'a, C1: Controller, C2: Controller> {
     pub cycles: u64,
     pub ram: [u8; 0x800],
     pub rom: &'a Rom,
     pub ppu: Ppu<'a>,
-    pub saved: [u8; 0x2000] // 0x6000
+    pub saved: [u8; 0x2000], // 0x6000
+    pub controllers: (C1, C2),
 }
 
 impl From<PpuMemoryError> for MemoryError {
@@ -39,7 +51,7 @@ impl Display for MemoryError {
 
 impl Error for MemoryError { }
 
-impl<'a> Memory<'a> {
+impl<'a, C1: Controller, C2: Controller> Memory<'a, C1, C2> {
     pub fn cycle(&mut self) {
         self.cycles += 1;
     }
@@ -77,8 +89,8 @@ impl<'a> Memory<'a> {
             0x2004 => self.ppu.read_oam_data(),
             0x2007 => self.ppu.read_data()?,
             0x4015 => 0, // APU Status
-            0x4016 => 0, // Controller 1
-            0x4017 => 0, // Controller 2
+            0x4016 => self.controllers.0.read(), // Controller 1
+            0x4017 => self.controllers.1.read(), // Controller 2
             0x6000..=0x7FFF => {
                 let target = (address - 0x6000) as usize;
 
@@ -152,13 +164,14 @@ impl<'a> Memory<'a> {
     }
     */
 
-    pub fn new(rom: &Rom) -> Memory {
+    pub fn new(rom: &'a Rom, controllers: (C1, C2)) -> Memory<'a, C1, C2> {
         Memory {
             cycles: 0,
             ram: [0; 0x800],
             ppu: Ppu::new(rom),
             rom,
-            saved: [0; 0x2000]
+            saved: [0; 0x2000],
+            controllers,
         }
     }
 }

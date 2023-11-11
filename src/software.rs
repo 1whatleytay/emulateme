@@ -82,11 +82,16 @@ const NES_PALETTE: [Color; 0x40] = [
     [0, 0, 0, 255],
 ];
 
+struct PreRenderedScanline {
+    background: [Option<Color>; NES_WIDTH],
+    foreground: [Option<Color>; NES_WIDTH]
+}
+
 pub struct SoftwareRenderer<F: Fn(RenderedFrame)> {
     scan_x: usize,
     scan_y: usize,
     last_cycle: u64,
-    pre_rendered_sprites: Option<[Option<Color>; NES_WIDTH]>,
+    pre_rendered_sprites: Option<PreRenderedScanline>,
     frame: RenderedFrame,
     push_frame: F
 }
@@ -94,6 +99,15 @@ pub struct SoftwareRenderer<F: Fn(RenderedFrame)> {
 impl Default for RenderedFrame {
     fn default() -> RenderedFrame {
         RenderedFrame { frame: [255; NES_FRAME_SIZE] }
+    }
+}
+
+impl Default for PreRenderedScanline {
+    fn default() -> PreRenderedScanline {
+        PreRenderedScanline {
+            background: [None; NES_WIDTH],
+            foreground: [None; NES_WIDTH],
+        }
     }
 }
 
@@ -119,7 +133,7 @@ impl<F: Fn(RenderedFrame)> SoftwareRenderer<F> {
         }
     }
 
-    fn render_background(&mut self, ppu: &mut Ppu, table: usize, x: usize, y: usize) -> Color {
+    fn render_background(&mut self, ppu: &mut Ppu, table: usize, x: usize, y: usize) -> Option<Color> {
         let col = x / 8;
         let row = y / 8;
 
@@ -143,11 +157,10 @@ impl<F: Fn(RenderedFrame)> SoftwareRenderer<F> {
         let palette = ppu.memory.palette.background[palette_index as usize];
 
         self.render_sprite(ppu, sprite as usize + 256, col_sub, row_sub, palette)
-            .unwrap_or_else(|| NES_PALETTE[ppu.memory.palette.background_solid as usize])
     }
 
-    fn pre_render_sprites(&mut self, ppu: &mut Ppu, y: usize) -> [Option<Color>; NES_WIDTH] {
-        let mut result = [None; NES_WIDTH];
+    fn pre_render_sprites(&mut self, ppu: &mut Ppu, y: usize) -> PreRenderedScanline {
+        let mut result = PreRenderedScanline::default();
 
         let sprite_width = 8;
         let sprite_height = 8;
@@ -155,15 +168,18 @@ impl<F: Fn(RenderedFrame)> SoftwareRenderer<F> {
         for i in (0 .. 64).rev() {
             let sprite = ppu.memory.oam[i];
 
-            if (sprite.y as usize) < y || (sprite.y as usize) >= y + sprite_height {
+            let sprite_y = sprite.y as usize;
+
+            if !(sprite_y <= y && y < sprite_y + sprite_height) {
                 continue
             }
 
-            if i == 0 {
-                ppu.registers.status.sprite_hit = true;
-            }
+            let behind_background = sprite.mask & 0b00100000 != 0;
 
-            let offset_y = sprite.y as usize - y;
+            let flip_x = sprite.mask & 0b01000000 != 0;
+            let flip_y = sprite.mask & 0b10000000 != 0;
+
+            let offset_y = y - sprite_y;
 
             let palette_index = sprite.mask & 0b11;
             let palette = ppu.memory.palette.sprite[palette_index as usize];
@@ -175,9 +191,24 @@ impl<F: Fn(RenderedFrame)> SoftwareRenderer<F> {
                     break
                 }
 
-                result[write_x] = self.render_sprite(
-                    ppu, sprite.number as usize, offset_x, offset_y, palette
+                let sprite_offset_x = if flip_x { sprite_width - 1 - offset_x } else { offset_x };
+                let sprite_offset_y = if flip_y { sprite_height - 1 - offset_y } else { offset_y };
+
+                let color = self.render_sprite(
+                    ppu, sprite.number as usize, sprite_offset_x, sprite_offset_y, palette
                 );
+
+                if let Some(color) = color {
+                    if i == 0 {
+                        ppu.registers.status.sprite_hit = true;
+                    }
+
+                    if behind_background {
+                        result.background[write_x] = Some(color);
+                    } else {
+                        result.foreground[write_x] = Some(color);
+                    }
+                }
             }
         }
 
@@ -185,7 +216,10 @@ impl<F: Fn(RenderedFrame)> SoftwareRenderer<F> {
     }
 
     fn render_pixel(&mut self, ppu: &mut Ppu, x: usize, y: usize) -> Color {
-        if let Some(color) = self.pre_rendered_sprites.and_then(|pixels| pixels[x]) {
+        let foreground_pixel = self.pre_rendered_sprites.as_ref()
+            .and_then(|pixels| pixels.foreground[x]);
+
+        if let Some(color) = foreground_pixel {
             return color
         }
 
@@ -209,6 +243,11 @@ impl<F: Fn(RenderedFrame)> SoftwareRenderer<F> {
         let name_table = if name_table { 1 } else { 0 };
 
         self.render_background(ppu, name_table, offset_x, offset_y)
+            .or_else(|| {
+                self.pre_rendered_sprites.as_ref()
+                    .and_then(|pixels| pixels.background[x])
+            })
+            .unwrap_or_else(|| NES_PALETTE[ppu.memory.palette.background_solid as usize])
     }
 
     pub fn new(push_frame: F) -> SoftwareRenderer<F> {

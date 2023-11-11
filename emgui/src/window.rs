@@ -4,7 +4,7 @@ use winit::window::{Window, WindowBuilder};
 use anyhow::{anyhow, Result};
 use wgpu::{CompositeAlphaMode, DeviceDescriptor, Instance, InstanceDescriptor, PresentMode, RequestAdapterOptions, SurfaceConfiguration, TextureFormat, TextureUsages};
 use winit::dpi::PhysicalSize;
-use winit::event::{Event, WindowEvent};
+use winit::event::{Event, KeyEvent, WindowEvent};
 use winit::event_loop::EventLoop;
 use crate::streamer::StreamerDetails;
 
@@ -59,7 +59,7 @@ pub fn configure_surface(details: &StreamerDetails, size: PhysicalSize<u32>) {
 }
 
 impl WindowDetails {
-    pub fn run<F: FnMut()>(&self, event_loop: EventLoop<()>, mut render: F) -> Result<()> {
+    pub fn run<F: FnMut(), G: FnMut(KeyEvent)>(&self, event_loop: EventLoop<()>, mut render: F, mut key: G) -> Result<()> {
         event_loop.run(|event, target| {
             if let Event::WindowEvent { event, .. } = event {
                 match event {
@@ -81,6 +81,10 @@ impl WindowDetails {
 
                     WindowEvent::RedrawRequested => {
                         render()
+                    }
+
+                    WindowEvent::KeyboardInput { event, .. } => {
+                        key(event)
                     }
 
                     _ => { }

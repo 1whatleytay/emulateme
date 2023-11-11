@@ -422,6 +422,7 @@ name = "emgui"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bitflags 2.4.1",
  "bytemuck",
  "emulateme",
  "env_logger",

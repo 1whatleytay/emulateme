@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter};
 use crate::cpu::{Cpu, StatusRegister};
 use crate::decoder::Decoder;
 use crate::interpreter::CpuError::{Break, InvalidOp, Memory, Stop};
-use crate::memory::MemoryError;
+use crate::memory::{Controller, MemoryError};
 
 #[derive(Debug)]
 pub enum CpuError {
@@ -15,7 +15,7 @@ pub enum CpuError {
 
 const STACK_START: u16 = 0x100;
 
-impl<'a> Cpu<'a> {
+impl<'a, C1: Controller, C2: Controller> Cpu<'a, C1, C2> {
     fn get_ptr(&mut self, offset: u8) -> Result<u16, MemoryError> {
         let low = self.memory.get(offset as u16)? as u16;
         let high = self.memory.get(offset.wrapping_add(1) as u16)? as u16;
@@ -258,7 +258,7 @@ impl<'a> Cpu<'a> {
     }
 }
 
-impl<'a> Decoder<Result<(), CpuError>> for Cpu<'a> {
+impl<'a, C1: Controller, C2: Controller> Decoder<Result<(), CpuError>> for Cpu<'a, C1, C2> {
     fn brk(&mut self) -> Result<(), CpuError> {
         Err(Break)
     }
@@ -1561,11 +1561,11 @@ impl Display for CpuError {
 
 impl Error for CpuError { }
 
-impl<'a> Cpu<'a> {
+impl<'a, C1: Controller, C2: Controller> Cpu<'a, C1, C2> {
     pub fn step(&mut self) -> Result<(), CpuError> {
         let pc = self.registers.pc;
 
-        let next = |cpu: &mut Cpu| {
+        let next = |cpu: &mut Cpu<C1, C2>| {
             let pc = cpu.registers.pc;
 
             let value = cpu.memory.get(pc);

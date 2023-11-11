@@ -1,5 +1,5 @@
 use bitflags::bitflags;
-use crate::memory::Memory;
+use crate::memory::{Controller, Memory};
 use crate::rom::Rom;
 
 #[derive(Clone)]
@@ -34,10 +34,10 @@ pub struct Vectors {
     pub interrupt: u16
 }
 
-pub struct Cpu<'a> {
+pub struct Cpu<'a, C1: Controller, C2: Controller> {
     pub vectors: Vectors,
     pub registers: Registers,
-    pub memory: Memory<'a>
+    pub memory: Memory<'a, C1, C2>
 }
 
 impl Registers {
@@ -53,9 +53,9 @@ impl Registers {
     }
 }
 
-impl<'a> Cpu<'a> {
-    pub fn new(rom: &'a Rom, pc: Option<u16>) -> Cpu<'a> {
-        let mut memory = Memory::new(rom);
+impl<'a, C1: Controller, C2: Controller> Cpu<'a, C1, C2> {
+    pub fn new(rom: &'a Rom, pc: Option<u16>, controllers: (C1, C2)) -> Cpu<'a, C1, C2> {
+        let mut memory = Memory::new(rom, controllers);
 
         const DEFAULT: u16 = 0x8000;
 
