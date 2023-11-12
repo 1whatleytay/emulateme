@@ -1,9 +1,6 @@
 use std::{env, fs, thread};
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Instant;
 use bitflags::bitflags;
-use wgpu::VertexStepMode::Instance;
 use winit::event::ElementState;
 use winit::keyboard::{KeyCode, PhysicalKey};
 use emulateme::cpu::Cpu;
@@ -67,7 +64,7 @@ impl Controller for GuiController {
     }
 }
 
-fn decode_state<C1: Controller, C2: Controller>(cpu: &mut Cpu<C1, C2>) -> String {
+fn decode_state<C1: Controller, C2: Controller, F: FnMut(RenderedFrame)>(cpu: &mut Cpu<C1, C2>, renderer: &SoftwareRenderer<F>) -> String {
     let registers = cpu.registers.clone();
     let cycles = cpu.memory.cycles;
 
@@ -95,9 +92,9 @@ fn decode_state<C1: Controller, C2: Controller>(cpu: &mut Cpu<C1, C2>) -> String
     }).collect::<Vec<String>>().join(" ");
 
     format!("{:04X}  {components:8 }  {instruction:30 }  \
-            A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X} CYC:{}",
+            A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X} CYC:{} PPU: {}, {}",
                        registers.pc, registers.a, registers.x, registers.y,
-                       registers.p.bits(), registers.sp, cycles
+                       registers.p.bits(), registers.sp, cycles, renderer.scan_x, renderer.scan_y
     )
 }
 
@@ -139,7 +136,9 @@ fn main() {
         });
 
         loop {
-            // println!("{}", decode_state(&mut cpu));
+            // if cpu.registers.pc != 0x8057 {
+            //     println!("{}", decode_state(&mut cpu, &renderer));
+            // }
 
             cpu.step().unwrap();
 

@@ -306,6 +306,8 @@ impl<'a> PpuMemory<'a> {
 impl<'a> Ppu<'a> {
     pub fn write_ctrl(&mut self, value: u8) {
         self.registers.control = ControlRegister::from_bits(value);
+
+        println!("Write control {value:02X} -> base_nt = {}", self.registers.control.base_name_table_x);
     }
 
     pub fn write_mask(&mut self, value: u8) {
@@ -340,6 +342,8 @@ impl<'a> Ppu<'a> {
         } else {
             self.registers.scroll.x = value;
         }
+
+        println!("Write scroll {value} -> {}, {}", self.registers.scroll.x, self.registers.scroll.y);
 
         self.registers.scroll.write_y = !self.registers.scroll.write_y;
     }

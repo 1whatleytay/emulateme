@@ -87,9 +87,9 @@ struct PreRenderedScanline {
     foreground: [Option<Color>; NES_WIDTH]
 }
 
-pub struct SoftwareRenderer<F: Fn(RenderedFrame)> {
-    scan_x: usize,
-    scan_y: usize,
+pub struct SoftwareRenderer<F: FnMut(RenderedFrame)> {
+    pub scan_x: usize,
+    pub scan_y: usize,
     last_cycle: u64,
     pre_rendered_sprites: Option<PreRenderedScanline>,
     frame: RenderedFrame,
@@ -168,7 +168,8 @@ impl<F: Fn(RenderedFrame)> SoftwareRenderer<F> {
         for i in (0 .. 64).rev() {
             let sprite = ppu.memory.oam[i];
 
-            let sprite_y = sprite.y as usize;
+            // Sprites are delayed by one scanline.
+            let sprite_y = sprite.y as usize + 1;
 
             if !(sprite_y <= y && y < sprite_y + sprite_height) {
                 continue
