@@ -1,12 +1,11 @@
 use std::{env, fs};
-use std::fs::File;
-use std::io::Write;
 use emulateme::cpu::Cpu;
 use emulateme::decoder::{Decoder, decoder_iterator};
 use emulateme::disassembler::Disassembler;
+use emulateme::memory::Controller;
 use emulateme::rom::parse_rom;
 
-fn decode_state(cpu: &mut Cpu) -> String {
+fn decode_state<C1: Controller, C2: Controller>(cpu: &mut Cpu<C1, C2>) -> String {
     let registers = cpu.registers.clone();
     let cycles = cpu.memory.cycles;
 
@@ -51,7 +50,7 @@ fn main() {
     let (_, rom) = parse_rom(&bytes)
         .unwrap_or_else(|_| panic!("Failed to parse ROM contents at path {path}"));
 
-    let mut cpu = Cpu::new(&rom, Some(0xC000));
+    let mut cpu = Cpu::new(&rom, Some(0xC000), );
 
     loop {
         println!("{}", decode_state(&mut cpu));

@@ -224,10 +224,10 @@ impl<F: Fn(RenderedFrame)> SoftwareRenderer<F> {
             return color
         }
 
-        let mut offset_x = x + (ppu.registers.scroll.x as usize);
-        let mut offset_y = y + (ppu.registers.scroll.y as usize);
+        let mut offset_x = x + (ppu.registers.render.x_scroll() as usize);
+        let mut offset_y = y + (ppu.registers.render.y_scroll() as usize);
 
-        let mut name_table = ppu.registers.control.base_name_table_x != ppu.registers.control.base_name_table_y;
+        let mut name_table = ppu.registers.render.name_table_x() != ppu.registers.render.name_table_y();
 
         if offset_x >= 256 {
             offset_x -= 256;
@@ -236,14 +236,20 @@ impl<F: Fn(RenderedFrame)> SoftwareRenderer<F> {
         }
 
         if offset_y >= 240 {
-            offset_y -= 256;
+            offset_y -= 240;
 
             name_table = !name_table;
         }
 
         let name_table = if name_table { 1 } else { 0 };
 
-        self.render_background(ppu, name_table, offset_x, offset_y)
+        let background = if ppu.registers.mask.show_background {
+            self.render_background(ppu, name_table, offset_x, offset_y)
+        } else {
+            None
+        };
+
+        background
             .or_else(|| {
                 self.pre_rendered_sprites.as_ref()
                     .and_then(|pixels| pixels.background[x])
@@ -272,7 +278,7 @@ impl<F: Fn(RenderedFrame)> Renderer for SoftwareRenderer<F> {
         for _ in 0..diff {
             match self.scan_y {
                 0 ..= 239 => {
-                    if self.scan_x == 0 {
+                    if self.scan_x == 0 && ppu.registers.mask.show_sprites {
                         self.pre_rendered_sprites = Some(self.pre_render_sprites(ppu, self.scan_y));
                     }
 

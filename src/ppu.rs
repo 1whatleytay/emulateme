@@ -26,8 +26,6 @@ pub struct PaletteMemory {
 
 #[derive(Default)]
 pub struct ControlRegister {
-    pub base_name_table_x: bool,
-    pub base_name_table_y: bool,
     pub increment_32: bool,
     pub base_sprite_pattern_table: bool,
     pub base_background_pattern_table: bool,
@@ -61,6 +59,14 @@ pub struct StatusRegister {
     pub v_blank_hit: bool,
 }
 
+#[derive(Default)]
+pub struct RenderRegister {
+    t: u16,
+    v: u16,
+    x: u8,
+    w: bool
+}
+
 #[derive(Copy, Clone)]
 pub struct Sprite {
     pub y: u8,
@@ -73,13 +79,14 @@ pub struct Sprite {
 pub struct PpuRegisters {
     pub control: ControlRegister,
     pub mask: MaskRegister,
-    pub scroll: ScrollRegister,
+    // pub scroll: ScrollRegister,
     pub status: StatusRegister,
+    pub render: RenderRegister,
 
     pub oam_address: u8,
 
-    pub write_low_address: bool,
-    pub address: u16,
+    // pub write_low_address: bool,
+    // pub address: u16,
     pub read_buffer: u8,
 }
 
@@ -141,8 +148,6 @@ impl Default for StatusRegister {
 impl ControlRegister {
     pub fn from_bits(value: u8) -> ControlRegister {
         ControlRegister {
-            base_name_table_x: value & 0b00000001 != 0,
-            base_name_table_y: value & 0b00000010 != 0,
             increment_32: value & 0b00000100 != 0,
             base_sprite_pattern_table: value & 0b00001000 != 0,
             base_background_pattern_table: value & 0b00010000 != 0,
@@ -174,6 +179,58 @@ impl StatusRegister {
         let v_blank_hit = if self.v_blank_hit { 0b10000000 } else { 0 };
 
         sprite_hit | v_blank_hit
+    }
+}
+
+impl RenderRegister {
+    pub fn x_scroll(&self) -> u8 {
+        (((self.t & 0b0000000000011111) as u8) << 3) | self.x
+    }
+
+    pub fn y_scroll(&self) -> u8 {
+        (((self.t & 0b0000001111100000) >> 2) as u8) | (((self.t & 0b0111000000000000) >> 12) as u8)
+    }
+
+    pub fn name_table_x(&self) -> bool {
+        self.t & 0b0000010000000000 != 0
+    }
+
+    pub fn name_table_y(&self) -> bool {
+        self.t & 0b0000100000000000 != 0
+    }
+
+    pub fn write_control(&mut self, value: u8) {
+        self.t = (self.t & 0b1111001111111111) | (((value & 0b11) as u16) << 10)
+    }
+
+    pub fn read_status(&mut self) {
+        self.w = false;
+    }
+
+    pub fn write_scroll(&mut self, value: u8) {
+        if self.w {
+            let low = ((value & 0b111) as u16) << 12;
+            let high = ((value & 0b11111000) as u16) << 2;
+
+            self.t = (self.t & 0b0000110000011111) | low | high;
+        } else {
+            self.t = (self.t & 0b1111111111100000) | (((value as u16) & 0b11111000) >> 3);
+            self.x = value & 0b111;
+        }
+
+        self.w = !self.w;
+    }
+
+    pub fn write_address(&mut self, value: u8) {
+        if self.w {
+            self.t = (self.t & 0b1111111100000000) | (value as u16);
+
+            self.v = self.t
+        } else {
+            self.t = (self.t & 0b0000000011111111) | (((value & 0b00111111) as u16) << 8);
+        }
+
+        self.w = !self.w;
     }
 }
 
@@ -307,7 +364,7 @@ impl<'a> Ppu<'a> {
     pub fn write_ctrl(&mut self, value: u8) {
         self.registers.control = ControlRegister::from_bits(value);
 
-        println!("Write control {value:02X} -> base_nt = {}", self.registers.control.base_name_table_x);
+        self.registers.render.write_control(value)
     }
 
     pub fn write_mask(&mut self, value: u8) {
@@ -315,6 +372,8 @@ impl<'a> Ppu<'a> {
     }
 
     pub fn read_status(&mut self) -> u8 {
+        self.registers.render.read_status();
+
         self.registers.status.bits()
     }
 
@@ -337,34 +396,20 @@ impl<'a> Ppu<'a> {
     }
 
     pub fn write_scroll(&mut self, value: u8) {
-        if self.registers.scroll.write_y {
-            self.registers.scroll.y = value;
-        } else {
-            self.registers.scroll.x = value;
-        }
-
-        println!("Write scroll {value} -> {}, {}", self.registers.scroll.x, self.registers.scroll.y);
-
-        self.registers.scroll.write_y = !self.registers.scroll.write_y;
+        self.registers.render.write_scroll(value)
     }
 
     pub fn write_address(&mut self, value: u8) {
-        if self.registers.write_low_address {
-            self.registers.address = (self.registers.address & 0xFF00) | (value as u16);
-        } else {
-            self.registers.address = (self.registers.address & 0x00FF) | ((value as u16) << 8);
-        }
-
-        self.registers.write_low_address = !self.registers.write_low_address;
+        self.registers.render.write_address(value)
     }
 
     pub fn write_data(&mut self, value: u8) -> Result<(), PpuMemoryError> {
-        self.memory.write(self.registers.address, value)?;
+        self.memory.write(self.registers.render.v, value)?;
 
         if self.registers.control.increment_32 {
-            self.registers.address += 32;
+            self.registers.render.v += 32;
         } else {
-            self.registers.address += 1;
+            self.registers.render.v += 1;
         }
 
         Ok(())
@@ -373,12 +418,12 @@ impl<'a> Ppu<'a> {
     pub fn read_data(&mut self) -> Result<u8, PpuMemoryError> {
         let result = self.registers.read_buffer;
 
-        self.registers.read_buffer = self.memory.read(self.registers.address)?;
+        self.registers.read_buffer = self.memory.read(self.registers.render.v)?;
 
         if self.registers.control.increment_32 {
-            self.registers.address += 32;
+            self.registers.render.v += 32;
         } else {
-            self.registers.address += 1;
+            self.registers.render.v += 1;
         }
 
         Ok(result)
