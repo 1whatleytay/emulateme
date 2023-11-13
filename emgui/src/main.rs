@@ -7,9 +7,9 @@ use emulateme::cpu::Cpu;
 use emulateme::decoder::{Decoder, decoder_iterator};
 use emulateme::disassembler::Disassembler;
 use emulateme::memory::{Controller, NoController};
-use emulateme::renderer::{RenderAction, Renderer};
+use emulateme::renderer::{NES_HEIGHT, NES_WIDTH, RenderAction, RenderedFrame, Renderer};
 use emulateme::rom::parse_rom;
-use emulateme::software::{NES_HEIGHT, NES_WIDTH, RenderedFrame, SoftwareRenderer};
+use emulateme::software::SoftwareRenderer;
 use crate::streamer::Streamer;
 use crate::window::WindowDetails;
 
@@ -64,7 +64,7 @@ impl Controller for GuiController {
     }
 }
 
-fn decode_state<C1: Controller, C2: Controller, F: FnMut(RenderedFrame)>(cpu: &mut Cpu<C1, C2>, renderer: &SoftwareRenderer<F>) -> String {
+fn decode_state<C1: Controller, C2: Controller>(cpu: &mut Cpu<C1, C2>, renderer: &SoftwareRenderer) -> String {
     let registers = cpu.registers.clone();
     let cycles = cpu.memory.cycles;
 
@@ -127,24 +127,22 @@ fn main() {
     thread::spawn(move || {
         let mut cpu = Cpu::new(&rom, None, (controller_copy, NoController));
 
-        let mut renderer = SoftwareRenderer::new(|frame| {
-            let mut frame_data = frame_arc.lock().unwrap();
-
-            *frame_data = Some(frame);
-
-            window_arc.request_redraw();
-        });
+        let mut renderer = SoftwareRenderer::new();
 
         loop {
-            // if cpu.registers.pc != 0x8057 {
-            //     println!("{}", decode_state(&mut cpu, &renderer));
-            // }
-
             cpu.step().unwrap();
 
             match renderer.render(&mut cpu.memory.ppu, cpu.memory.cycles) {
                 RenderAction::None => { },
-                RenderAction::SendNMI => cpu.interrupt(cpu.vectors.nmi).unwrap()
+                RenderAction::SendFrame(frame) => {
+                    let mut frame_data = frame_arc.lock().unwrap();
+
+                    *frame_data = Some(frame);
+
+                    window_arc.request_redraw();
+
+                    cpu.interrupt(cpu.vectors.nmi).unwrap()
+                }
             }
         }
     });

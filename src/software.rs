@@ -1,17 +1,8 @@
 use crate::ppu::{Palette, Ppu};
-use crate::renderer::{Renderer, RenderAction};
-
-pub const NES_WIDTH: usize = 256;
-pub const NES_HEIGHT: usize = 240;
-
-pub const NES_FRAME_SIZE: usize = NES_WIDTH * NES_HEIGHT * 4;
+use crate::renderer::{Renderer, RenderAction, NES_WIDTH, RenderedFrame, NES_FRAME_SIZE};
 
 pub const NES_SCANLINE_WIDTH: usize = 341;
 pub const NES_SCANLINE_COUNT: usize = 262;
-
-pub struct RenderedFrame {
-    pub frame: [u8; NES_FRAME_SIZE]
-}
 
 type Color = [u8; 4];
 
@@ -87,13 +78,13 @@ struct PreRenderedScanline {
     foreground: [Option<Color>; NES_WIDTH]
 }
 
-pub struct SoftwareRenderer<F: FnMut(RenderedFrame)> {
+#[derive(Default)]
+pub struct SoftwareRenderer {
     pub scan_x: usize,
     pub scan_y: usize,
     last_cycle: u64,
     pre_rendered_sprites: Option<PreRenderedScanline>,
     frame: RenderedFrame,
-    push_frame: F
 }
 
 impl Default for RenderedFrame {
@@ -111,7 +102,7 @@ impl Default for PreRenderedScanline {
     }
 }
 
-impl<F: Fn(RenderedFrame)> SoftwareRenderer<F> {
+impl SoftwareRenderer {
     fn render_sprite(&mut self, ppu: &mut Ppu, sprite: usize, x: usize, y: usize, palette: Palette) -> Option<Color> {
         let address = sprite * 8 * 2 + y;
         let plane_0 = ppu.memory.rom.chr_rom[address];
@@ -257,18 +248,12 @@ impl<F: Fn(RenderedFrame)> SoftwareRenderer<F> {
             .unwrap_or_else(|| NES_PALETTE[ppu.memory.palette.background_solid as usize])
     }
 
-    pub fn new(push_frame: F) -> SoftwareRenderer<F> {
-        SoftwareRenderer {
-            scan_x: 0, scan_y: 0,
-            last_cycle: 0,
-            pre_rendered_sprites: None,
-            frame: RenderedFrame::default(),
-            push_frame
-        }
+    pub fn new() -> SoftwareRenderer {
+        SoftwareRenderer::default()
     }
 }
 
-impl<F: Fn(RenderedFrame)> Renderer for SoftwareRenderer<F> {
+impl Renderer for SoftwareRenderer {
     fn render(&mut self, ppu: &mut Ppu, cycle: u64) -> RenderAction {
         let diff = (cycle - self.last_cycle) * 3;
         self.last_cycle = cycle;
@@ -318,9 +303,7 @@ impl<F: Fn(RenderedFrame)> Renderer for SoftwareRenderer<F> {
         }
 
         if has_v_blank && ppu.registers.control.gen_nmi {
-            (self.push_frame)(std::mem::take(&mut self.frame));
-
-            RenderAction::SendNMI
+            RenderAction::SendFrame(std::mem::take(&mut self.frame))
         } else {
             RenderAction::None
         }
