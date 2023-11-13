@@ -1,5 +1,6 @@
 use bitflags::bitflags;
-use crate::memory::{Controller, Memory};
+use crate::controller::Controller;
+use crate::memory::Memory;
 use crate::rom::Rom;
 
 #[derive(Clone)]

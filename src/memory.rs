@@ -1,5 +1,6 @@
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
+use crate::controller::Controller;
 use crate::ppu::{Ppu, PpuMemoryError};
 use crate::rom::Rom;
 
@@ -8,17 +9,6 @@ pub enum MemoryError {
     UnmappedRead(u16),
     UnmappedWrite(u16),
     PpuError(PpuMemoryError)
-}
-
-pub trait Controller {
-    fn read(&mut self) -> u8;
-}
-
-#[derive(Default)]
-pub struct NoController;
-
-impl Controller for NoController {
-    fn read(&mut self) -> u8 { 0 }
 }
 
 pub struct Memory<'a, C1: Controller, C2: Controller> {

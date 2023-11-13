@@ -3,11 +3,10 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use anyhow::{anyhow, Result};
-use bitflags::bitflags;
 use prost::Message;
+use emulateme::controller::{ControllerFlags, GenericController, NoController};
 use emulateme::cpu::Cpu;
 use emulateme::interpreter::CpuError;
-use emulateme::memory::{Controller, NoController};
 use emulateme::renderer::{RenderAction, RenderedFrame, Renderer};
 use emulateme::rom::Rom;
 use emulateme::software::SoftwareRenderer;
@@ -15,22 +14,6 @@ use crate::delimiter::Delimiter;
 use crate::messages::{ActionError, ActionResult, ControllerInput, EmulatorDetails, FrameContents, FrameDetails, Pong, Request, Response};
 use crate::messages::request::Contents as RequestContents;
 use crate::messages::response::Contents as ResponseContents;
-
-#[derive(Default)]
-pub struct ControllerFlags(u8);
-
-bitflags! {
-    impl ControllerFlags: u8 {
-        const A = 0b00000001;
-        const B = 0b00000010;
-        const SELECT = 0b00000100;
-        const START = 0b00001000;
-        const UP = 0b00010000;
-        const DOWN = 0b00100000;
-        const LEFT = 0b01000000;
-        const RIGHT = 0b10000000;
-    }
-}
 
 impl From<ControllerInput> for ControllerFlags {
     fn from(value: ControllerInput) -> Self {
@@ -72,24 +55,6 @@ impl From<ControllerInput> for ControllerFlags {
     }
 }
 
-#[derive(Default)]
-struct GenericController {
-    clock: usize,
-    flags: ControllerFlags
-}
-
-impl Controller for GenericController {
-    fn read(&mut self) -> u8 {
-        let clock = self.clock % 8;
-
-        let value = self.flags.0 & (1 << clock) != 0;
-
-        self.clock += 1;
-
-        if value { 1 } else { 0 }
-    }
-}
-
 struct NesInstance<'a> {
     frame: RenderedFrame,
     renderer: SoftwareRenderer,
@@ -120,7 +85,7 @@ impl<'a> NesInstance<'a> {
     pub fn run_frames(&mut self, skip_frames: usize, input: ControllerFlags) -> Result<(), CpuError> {
         let mut frame_count = 0;
 
-        self.cpu.memory.controllers.0.flags = input;
+        self.cpu.memory.controllers.0.press(input);
 
         while frame_count < skip_frames {
             self.cpu.step()?;
@@ -203,7 +168,7 @@ async fn client_connection(rom: Rom, stream: &mut TcpStream) -> Result<()> {
                 RequestContents::Ping(request) => {
                     send_message(stream, Response {
                         contents: Some(ResponseContents::Pong(Pong {
-                            server: "emserver-1".to_string(),
+                            server: "em-server-1".to_string(),
                             content: request.content,
                         })),
                     }).await?;

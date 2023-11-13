@@ -1,9 +1,10 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use crate::controller::Controller;
 use crate::cpu::{Cpu, StatusRegister};
 use crate::decoder::Decoder;
 use crate::interpreter::CpuError::{Break, InvalidOp, Memory, Stop};
-use crate::memory::{Controller, MemoryError};
+use crate::memory::MemoryError;
 
 #[derive(Debug)]
 pub enum CpuError {

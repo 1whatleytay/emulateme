@@ -1,12 +1,9 @@
 use std::{env, fs, thread};
 use std::sync::{Arc, Mutex};
-use bitflags::bitflags;
 use winit::event::ElementState;
 use winit::keyboard::{KeyCode, PhysicalKey};
+use emulateme::controller::{Controller, ControllerFlags, GenericController, NoController};
 use emulateme::cpu::Cpu;
-use emulateme::decoder::{Decoder, decoder_iterator};
-use emulateme::disassembler::Disassembler;
-use emulateme::memory::{Controller, NoController};
 use emulateme::renderer::{NES_HEIGHT, NES_WIDTH, RenderAction, RenderedFrame, Renderer};
 use emulateme::rom::parse_rom;
 use emulateme::software::SoftwareRenderer;
@@ -16,86 +13,25 @@ use crate::window::WindowDetails;
 mod window;
 mod streamer;
 
-#[derive(Default)]
-pub struct ControllerFlags(u8);
-
-bitflags! {
-    impl ControllerFlags: u8 {
-        const A = 0b00000001;
-        const B = 0b00000010;
-        const SELECT = 0b00000100;
-        const START = 0b00001000;
-        const UP = 0b00010000;
-        const DOWN = 0b00100000;
-        const LEFT = 0b01000000;
-        const RIGHT = 0b10000000;
-    }
-}
-
-#[derive(Default)]
-struct GuiControllerState {
-    clock: usize,
-    flags: ControllerFlags
-}
-
 #[derive(Clone, Default)]
 struct GuiController {
-    inner: Arc<Mutex<GuiControllerState>>
+    inner: Arc<Mutex<GenericController>>
 }
 
 impl GuiController {
     fn set(&self, flag: ControllerFlags, value: bool) {
         let mut state = self.inner.lock().unwrap();
 
-        state.flags.set(flag, value)
+        state.set(flag, value)
     }
 }
 
 impl Controller for GuiController {
     fn read(&mut self) -> u8 {
         let mut state = self.inner.lock().unwrap();
-        let clock = state.clock % 8;
 
-        let value = state.flags.0 & (1 << clock) != 0;
-
-        state.clock += 1;
-
-        if value { 1 } else { 0 }
+        state.read()
     }
-}
-
-fn decode_state<C1: Controller, C2: Controller>(cpu: &mut Cpu<C1, C2>, renderer: &SoftwareRenderer) -> String {
-    let registers = cpu.registers.clone();
-    let cycles = cpu.memory.cycles;
-
-    let mut size: u16 = 0;
-
-    let next = decoder_iterator(|i| {
-        size += 1;
-
-        cpu.memory.pass_get(registers.pc + i).ok()
-    });
-
-    let Some(instruction) = Disassembler { pc: registers.pc }.decode(next) else {
-        match cpu.memory.pass_get(registers.pc) {
-            Ok(op) =>
-                panic!("Unable to decode op {:02X} at PC: {:04X}", op, registers.pc),
-            Err(err) =>
-                panic!("Unable to access instruction at PC: {:04X} with error: {}", registers.pc, err)
-        }
-    };
-
-    let components = (0..size).map(|i| {
-        cpu.memory.pass_get(registers.pc + i)
-            .map(|x| format!("{x:02X}"))
-            .unwrap_or_else(|_| "RR".to_string())
-    }).collect::<Vec<String>>().join(" ");
-
-    format!("{:04X}  {components:8 }  {instruction:30 }  \
-            A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X} CYC:{} PPU: {}, {}",
-                       registers.pc, registers.a, registers.x, registers.y,
-                       registers.p.bits(), registers.sp, cycles, renderer.scan_x, renderer.scan_y
-    )
 }
 
 fn main() {
