@@ -1,0 +1,122 @@
+syntax = "proto3";
+
+package messages;
+
+message Ping {
+   string content = 1;
+}
+
+message Pong {
+  string server = 1;
+  string content = 2;
+}
+
+enum Renderer {
+  RENDERER_SOFTWARE = 0;
+  RENDERER_HARDWARE = 1;
+}
+
+message CreateEmulator {
+  Renderer renderer = 1;
+}
+
+message EmulatorDetails {
+  uint64 emulator_id = 1;
+}
+
+message GetFrame {
+  uint64 emulator_id = 1;
+  // Maps some key of your choice (ex. MARIO_X) to a memory address to be fetched.
+  // Key will be repeated in FrameDetails.
+  map<string, uint32> memory_requests = 2;
+}
+
+message FrameContents {
+  bytes frame = 1;
+
+  // Maps some key of your choice (ex. MARIO_X) to the associated byte.
+  // Missing key in the map means the fetch failed.
+  map<string, uint32> memory_values = 2;
+}
+
+message FrameDetails {
+  uint64 emulator_id = 1;
+
+  FrameContents frame = 2;
+}
+
+message ControllerInput {
+  bool a = 1;
+  bool b = 2;
+  bool select = 3;
+  bool start = 4;
+  bool up = 5;
+  bool down = 6;
+  bool left = 7;
+  bool right = 8;
+}
+
+message TakeAction {
+  uint64 emulator_id = 1;
+
+  // Should be at least 1. # of frames to hold this input for before returning.
+  uint64 skip_frames = 2;
+
+  ControllerInput input = 3;
+  map<string, uint32> memory_requests = 4;
+}
+
+message ActionError {
+  string message = 1;
+}
+
+message ActionResult {
+  uint64 emulator_id = 1;
+
+  FrameContents frame = 2;
+
+  optional ActionError error = 3;
+}
+
+message GetState {
+  uint64 emulator_id = 1;
+}
+
+message StateDetails {
+  uint64 emulator_id = 1;
+  bytes state = 2;
+}
+
+message SetState {
+  uint64 emulator_id = 1;
+
+  bytes state = 2;
+}
+
+message SetStateResult {
+  uint64 emulator_id = 1;
+
+  optional string parse_error = 2;
+}
+
+message Request {
+  oneof contents {
+    Ping ping = 1;
+    CreateEmulator create_emulator = 2;
+    GetFrame get_frame = 3;
+    TakeAction take_action = 4;
+    GetState get_state = 5;
+    SetState set_state = 6;
+  }
+}
+
+message Response {
+  oneof contents {
+    Pong pong = 1;
+    EmulatorDetails emulator_details = 2;
+    FrameDetails frame_details = 3;
+    ActionResult action_result = 4;
+    StateDetails state_details = 5;
+    SetStateResult set_state_result = 6;
+  }
+}
