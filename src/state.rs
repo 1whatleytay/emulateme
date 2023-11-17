@@ -97,6 +97,7 @@ pub struct PpuState {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CpuState {
     pub ram: Vec<u8>, // size: 0x800
+    pub controller_cycles: (u64, u64),
     pub registers: CpuRegisters,
     pub ppu: PpuState
 }
@@ -324,6 +325,7 @@ impl<'a, C1: Controller, C2: Controller> From<&Cpu<'a, C1, C2>> for CpuState {
     fn from(value: &Cpu<C1, C2>) -> CpuState {
         CpuState {
             ram: value.memory.ram.to_vec(),
+            controller_cycles: value.memory.controller_cycles,
             registers: (&value.registers).into(),
             ppu: PpuState {
                 registers: (&value.memory.ppu.registers).into(),
@@ -345,6 +347,7 @@ impl CpuState {
             },
             saved: [0; 0x2000],
             controllers,
+            controller_cycles: self.controller_cycles,
         };
 
         Some(Cpu {

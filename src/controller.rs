@@ -1,14 +1,14 @@
 use bitflags::bitflags;
 
 pub trait Controller {
-    fn read(&mut self) -> u8;
+    fn read(&mut self, cycle: u64) -> u8;
 }
 
 #[derive(Default)]
 pub struct NoController;
 
 impl Controller for NoController {
-    fn read(&mut self) -> u8 { 0 }
+    fn read(&mut self, _: u64) -> u8 { 0 }
 }
 
 
@@ -30,7 +30,6 @@ bitflags! {
 
 #[derive(Default)]
 pub struct GenericController {
-    clock: usize,
     flags: ControllerFlags
 }
 
@@ -45,12 +44,10 @@ impl GenericController {
 }
 
 impl Controller for GenericController {
-    fn read(&mut self) -> u8 {
-        let clock = self.clock % 8;
+    fn read(&mut self, clock: u64) -> u8 {
+        let clock = clock % 8;
 
         let value = self.flags.0 & (1 << clock) != 0;
-
-        self.clock += 1;
 
         if value { 1 } else { 0 }
     }

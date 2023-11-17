@@ -31,10 +31,10 @@ impl GuiController {
 }
 
 impl Controller for GuiController {
-    fn read(&mut self) -> u8 {
+    fn read(&mut self, clock: u64) -> u8 {
         let mut state = self.inner.lock().unwrap();
 
-        state.read()
+        state.read(clock)
     }
 }
 

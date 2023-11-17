@@ -17,6 +17,7 @@ pub struct Memory<'a, C1: Controller, C2: Controller> {
     pub rom: &'a Rom,
     pub ppu: Ppu<'a>,
     pub saved: [u8; 0x2000], // 0x6000
+    pub controller_cycles: (u64, u64),
     pub controllers: (C1, C2),
 }
 
@@ -79,8 +80,20 @@ impl<'a, C1: Controller, C2: Controller> Memory<'a, C1, C2> {
             0x2004 => self.ppu.read_oam_data(),
             0x2007 => self.ppu.read_data()?,
             0x4015 => 0, // APU Status
-            0x4016 => self.controllers.0.read(), // Controller 1
-            0x4017 => self.controllers.1.read(), // Controller 2
+            0x4016 => {
+                let value = self.controllers.0.read(self.controller_cycles.0);
+
+                self.controller_cycles.0 += 1;
+
+                value
+            }, // Controller 1
+            0x4017 => {
+                let value = self.controllers.1.read(self.controller_cycles.1);
+
+                self.controller_cycles.1 += 1;
+
+                value
+            }, // Controller 2
             0x6000..=0x7FFF => {
                 let target = (address - 0x6000) as usize;
 
@@ -161,6 +174,7 @@ impl<'a, C1: Controller, C2: Controller> Memory<'a, C1, C2> {
             ppu: Ppu::new(rom),
             rom,
             saved: [0; 0x2000],
+            controller_cycles: (0, 0),
             controllers,
         }
     }
