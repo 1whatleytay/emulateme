@@ -2,6 +2,7 @@ use std::cell::Cell;
 use std::sync::Arc;
 use winit::window::{Window, WindowBuilder};
 use anyhow::{anyhow, Result};
+use bitflags::Flags;
 use wgpu::{CompositeAlphaMode, DeviceDescriptor, Instance, InstanceDescriptor, PresentMode, RequestAdapterOptions, SurfaceConfiguration, TextureFormat, TextureUsages};
 use winit::dpi::PhysicalSize;
 use winit::event::{Event, KeyEvent, WindowEvent};

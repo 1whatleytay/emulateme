@@ -46,14 +46,6 @@ pub struct MaskRegister {
     pub emphasize_blue: bool,
 }
 
-#[derive(Default)]
-pub struct ScrollRegister {
-    pub write_y: bool,
-
-    pub x: u8,
-    pub y: u8,
-}
-
 pub struct StatusRegister {
     pub sprite_hit: bool,
     pub v_blank_hit: bool,
@@ -61,10 +53,10 @@ pub struct StatusRegister {
 
 #[derive(Default)]
 pub struct RenderRegister {
-    t: u16,
-    v: u16,
-    x: u8,
-    w: bool
+    pub t: u16,
+    pub v: u16,
+    pub x: u8,
+    pub w: bool
 }
 
 #[derive(Copy, Clone)]
@@ -79,7 +71,6 @@ pub struct Sprite {
 pub struct PpuRegisters {
     pub control: ControlRegister,
     pub mask: MaskRegister,
-    // pub scroll: ScrollRegister,
     pub status: StatusRegister,
     pub render: RenderRegister,
 

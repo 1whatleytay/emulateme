@@ -8,3 +8,4 @@ pub mod ppu;
 pub mod renderer;
 pub mod software;
 pub mod controller;
+pub mod state;

@@ -54,19 +54,25 @@ impl Registers {
     }
 }
 
+impl Vectors {
+    pub fn new<C1: Controller, C2: Controller>(memory: &mut Memory<C1, C2>) -> Vectors {
+        const DEFAULT: u16 = 0x8000;
+
+        Vectors {
+            nmi: memory.get_short(0xFFFA).unwrap_or(DEFAULT),
+            reset: memory.get_short(0xFFFC).unwrap_or(DEFAULT),
+            interrupt: memory.get_short(0xFFFE).unwrap_or(DEFAULT),
+        }
+    }
+}
+
 impl<'a, C1: Controller, C2: Controller> Cpu<'a, C1, C2> {
     pub fn new(rom: &'a Rom, pc: Option<u16>, controllers: (C1, C2)) -> Cpu<'a, C1, C2> {
         let mut memory = Memory::new(rom, controllers);
 
-        const DEFAULT: u16 = 0x8000;
-
-        let vectors = Vectors {
-            nmi: memory.get_short(0xFFFA).unwrap_or(DEFAULT),
-            reset: memory.get_short(0xFFFC).unwrap_or(DEFAULT),
-            interrupt: memory.get_short(0xFFFE).unwrap_or(DEFAULT),
-        };
-
         memory.cycle();
+
+        let vectors = Vectors::new(&mut memory);
 
         Cpu {
             registers: Registers::new(pc.unwrap_or(vectors.reset)),
