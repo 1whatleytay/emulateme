@@ -14,21 +14,7 @@ pub struct Pong {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct CreateEmulator {
-    #[prost(enumeration = "Renderer", tag = "1")]
-    pub renderer: i32,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct EmulatorDetails {
-    #[prost(uint64, tag = "1")]
-    pub emulator_id: u64,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetFrame {
-    #[prost(uint64, tag = "1")]
-    pub emulator_id: u64,
     /// Maps some key of your choice (ex. MARIO_X) to a memory address to be fetched.
     /// Key will be repeated in FrameDetails.
     #[prost(map = "string, uint32", tag = "2")]
@@ -50,8 +36,6 @@ pub struct FrameContents {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FrameDetails {
-    #[prost(uint64, tag = "1")]
-    pub emulator_id: u64,
     #[prost(message, optional, tag = "2")]
     pub frame: ::core::option::Option<FrameContents>,
 }
@@ -78,8 +62,6 @@ pub struct ControllerInput {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TakeAction {
-    #[prost(uint64, tag = "1")]
-    pub emulator_id: u64,
     /// Should be at least 1. # of frames to hold this input for before returning.
     #[prost(uint64, tag = "2")]
     pub skip_frames: u64,
@@ -100,8 +82,6 @@ pub struct ActionError {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ActionResult {
-    #[prost(uint64, tag = "1")]
-    pub emulator_id: u64,
     #[prost(message, optional, tag = "2")]
     pub frame: ::core::option::Option<FrameContents>,
     #[prost(message, optional, tag = "3")]
@@ -109,38 +89,29 @@ pub struct ActionResult {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct GetState {
-    #[prost(uint64, tag = "1")]
-    pub emulator_id: u64,
-}
+pub struct GetState {}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StateDetails {
-    #[prost(uint64, tag = "1")]
-    pub emulator_id: u64,
-    #[prost(bytes = "vec", tag = "2")]
+    #[prost(bytes = "vec", tag = "1")]
     pub state: ::prost::alloc::vec::Vec<u8>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SetState {
-    #[prost(uint64, tag = "1")]
-    pub emulator_id: u64,
-    #[prost(bytes = "vec", tag = "2")]
+    #[prost(bytes = "vec", tag = "1")]
     pub state: ::prost::alloc::vec::Vec<u8>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SetStateResult {
-    #[prost(uint64, tag = "1")]
-    pub emulator_id: u64,
     #[prost(string, optional, tag = "2")]
     pub parse_error: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Request {
-    #[prost(oneof = "request::Contents", tags = "1, 2, 3, 4, 5, 6")]
+    #[prost(oneof = "request::Contents", tags = "1, 3, 4, 5, 6")]
     pub contents: ::core::option::Option<request::Contents>,
 }
 /// Nested message and enum types in `Request`.
@@ -150,8 +121,6 @@ pub mod request {
     pub enum Contents {
         #[prost(message, tag = "1")]
         Ping(super::Ping),
-        #[prost(message, tag = "2")]
-        CreateEmulator(super::CreateEmulator),
         #[prost(message, tag = "3")]
         GetFrame(super::GetFrame),
         #[prost(message, tag = "4")]
@@ -165,7 +134,7 @@ pub mod request {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Response {
-    #[prost(oneof = "response::Contents", tags = "1, 2, 3, 4, 5, 6")]
+    #[prost(oneof = "response::Contents", tags = "1, 3, 4, 5, 6")]
     pub contents: ::core::option::Option<response::Contents>,
 }
 /// Nested message and enum types in `Response`.
@@ -175,8 +144,6 @@ pub mod response {
     pub enum Contents {
         #[prost(message, tag = "1")]
         Pong(super::Pong),
-        #[prost(message, tag = "2")]
-        EmulatorDetails(super::EmulatorDetails),
         #[prost(message, tag = "3")]
         FrameDetails(super::FrameDetails),
         #[prost(message, tag = "4")]

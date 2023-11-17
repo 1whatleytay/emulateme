@@ -10,8 +10,9 @@ use emulateme::interpreter::CpuError;
 use emulateme::renderer::{RenderAction, RenderedFrame, Renderer};
 use emulateme::rom::Rom;
 use emulateme::software::SoftwareRenderer;
+use emulateme::state::CpuState;
 use crate::delimiter::Delimiter;
-use crate::messages::{ActionError, ActionResult, ControllerInput, EmulatorDetails, FrameContents, FrameDetails, Pong, Request, Response};
+use crate::messages::{ActionError, ActionResult, ControllerInput, FrameContents, FrameDetails, Pong, Request, Response, SetStateResult, StateDetails};
 use crate::messages::request::Contents as RequestContents;
 use crate::messages::response::Contents as ResponseContents;
 
@@ -128,7 +129,7 @@ async fn send_message<M: prost::Message>(stream: &mut TcpStream, message: M) -> 
 async fn client_connection(rom: Rom, stream: &mut TcpStream) -> Result<()> {
     let mut delimiter = Delimiter::default();
 
-    let mut instances: Vec<NesInstance> = vec![];
+    let mut instance = Box::new(NesInstance::new(&rom));
 
     loop {
         let mut buffer = [0; 8192];
@@ -147,8 +148,6 @@ async fn client_connection(rom: Rom, stream: &mut TcpStream) -> Result<()> {
 
             break
         }
-
-        println!("Received {} bytes from client.", n);
 
         delimiter.push(&buffer[0 .. n]);
 
@@ -173,33 +172,9 @@ async fn client_connection(rom: Rom, stream: &mut TcpStream) -> Result<()> {
                         })),
                     }).await?;
                 }
-                RequestContents::CreateEmulator(_) => {
-                    let emulator_id = instances.len() as u64;
-
-                    instances.push(NesInstance::new(&rom));
-
-                    send_message(stream, Response {
-                        contents: Some(ResponseContents::EmulatorDetails(EmulatorDetails {
-                            emulator_id
-                        }))
-                    }).await?;
-                }
                 RequestContents::GetFrame(frame) => {
-                    let Some(instance) = instances.get_mut(frame.emulator_id as usize) else {
-                        send_message(stream, Response {
-                            contents: Some(ResponseContents::FrameDetails(FrameDetails {
-                                emulator_id: frame.emulator_id,
-                                frame: None,
-                            }))
-                        }).await?;
-
-                        continue
-                    };
-
-
                     send_message(stream, Response {
                         contents: Some(ResponseContents::FrameDetails(FrameDetails {
-                            emulator_id: frame.emulator_id,
                             frame: Some(FrameContents {
                                 frame: instance.frame.frame.to_vec(),
                                 memory_values: instance.get_values(&frame.memory_requests),
@@ -208,20 +183,6 @@ async fn client_connection(rom: Rom, stream: &mut TcpStream) -> Result<()> {
                     }).await?;
                 }
                 RequestContents::TakeAction(action) => {
-                    let Some(instance) = instances.get_mut(action.emulator_id as usize) else {
-                        send_message(stream, Response {
-                            contents: Some(ResponseContents::ActionResult(ActionResult {
-                                emulator_id: action.emulator_id,
-                                frame: None,
-                                error: Some(ActionError {
-                                    message: format!("No emulator with id {}", action.emulator_id),
-                                }),
-                            }))
-                        }).await?;
-
-                        continue
-                    };
-
                     let flags = action.input
                         .map(ControllerFlags::from)
                         .unwrap_or(ControllerFlags::empty());
@@ -229,7 +190,6 @@ async fn client_connection(rom: Rom, stream: &mut TcpStream) -> Result<()> {
                     if let Err(err) = instance.run_frames(action.skip_frames as usize, flags) {
                         send_message(stream, Response {
                             contents: Some(ResponseContents::ActionResult(ActionResult {
-                                emulator_id: action.emulator_id,
                                 frame: None,
                                 error: Some(ActionError {
                                     message: format!("CpuError: {err}"),
@@ -242,7 +202,6 @@ async fn client_connection(rom: Rom, stream: &mut TcpStream) -> Result<()> {
 
                     send_message(stream, Response {
                         contents: Some(ResponseContents::ActionResult(ActionResult {
-                            emulator_id: action.emulator_id,
                             frame: Some(FrameContents {
                                 frame: instance.frame.frame.to_vec(),
                                 memory_values: instance.get_values(&action.memory_requests),
@@ -251,25 +210,46 @@ async fn client_connection(rom: Rom, stream: &mut TcpStream) -> Result<()> {
                         }))
                     }).await?;
                 }
-                _ => { println!("Unknown request contents: {contents:?}") }
+                RequestContents::GetState(_) => {
+                    let state: CpuState = (&instance.cpu).into();
+
+                    let bytes = postcard::to_allocvec(&state)
+                        .unwrap_or_default();
+
+                    send_message(stream, Response {
+                        contents: Some(ResponseContents::StateDetails(StateDetails {
+                            state: bytes,
+                        }))
+                    }).await?;
+                }
+                RequestContents::SetState(state) => {
+                    let error = match postcard::from_bytes::<CpuState>(&state.state) {
+                        Ok(state) => {
+                            let controllers = (GenericController::default(), NoController);
+
+                            if let Some(cpu) = state.restore(&rom, controllers) {
+                                instance.cpu = cpu;
+                                instance.renderer = SoftwareRenderer::new();
+
+                                None
+                            } else {
+                                Some("Failed to create CPU instance from state.".to_string())
+                            }
+                        }
+                        Err(err) => Some(format!("{err}"))
+                    };
+
+                    send_message(stream, Response {
+                        contents: Some(ResponseContents::SetStateResult(SetStateResult {
+                            parse_error: error
+                        }))
+                    }).await?;
+                }
             }
         }
     }
 
     println!("Connection closed.");
-
-    // println!("This is socket thread!");
-    //
-    // let data = response.encode_to_vec();
-    //
-    // let size = data.len() as u64;
-    //
-    // println!("x: {:?}", &size.to_be_bytes());
-    //
-    // stream.write_all(&size.to_be_bytes()).await.unwrap();
-    // stream.write_all(&data).await.unwrap();
-    //
-    // println!("Sent hello world!");
 
     Ok(())
 }
