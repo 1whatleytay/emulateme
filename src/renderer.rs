@@ -12,10 +12,14 @@ pub struct RenderedFrame {
 
 pub enum RenderAction {
     None,
-    // Equivalent ot Send NMI
-    SendFrame(RenderedFrame)
+    SendNMI,
 }
 
 pub trait Renderer {
+    fn sync(&mut self, cycles: u64);
     fn render(&mut self, ppu: &mut Ppu, cycle: u64) -> RenderAction;
+}
+
+pub trait FrameRenderer: Renderer {
+    fn take(&mut self) -> Option<Box<RenderedFrame>>;
 }

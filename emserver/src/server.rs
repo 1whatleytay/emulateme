@@ -57,7 +57,7 @@ impl From<ControllerInput> for ControllerFlags {
 }
 
 struct NesInstance<'a> {
-    frame: RenderedFrame,
+    frame: Box<RenderedFrame>,
     renderer: SoftwareRenderer,
     cpu: Cpu<'a, GenericController, NoController>
 }
@@ -93,13 +93,13 @@ impl<'a> NesInstance<'a> {
 
             match self.renderer.render(&mut self.cpu.memory.ppu, self.cpu.memory.cycles) {
                 RenderAction::None => { },
-                RenderAction::SendFrame(frame) => {
-                    frame_count += 1;
+                RenderAction::SendNMI => self.cpu.interrupt(self.cpu.vectors.nmi)?
+            }
 
-                    self.cpu.interrupt(self.cpu.vectors.nmi)?;
+            if let Some(frame) = self.renderer.take() {
+                frame_count += 1;
 
-                    self.frame = frame
-                }
+                self.frame = frame;
             }
         }
 
@@ -108,7 +108,7 @@ impl<'a> NesInstance<'a> {
 
     pub fn new(rom: &Rom) -> NesInstance {
         NesInstance {
-            frame: RenderedFrame::default(),
+            frame: Box::default(),
             cpu: Cpu::new(rom, None, (GenericController::default(), NoController)),
             renderer: SoftwareRenderer::new(),
         }
@@ -229,7 +229,7 @@ async fn client_connection(rom: Rom, stream: &mut TcpStream) -> Result<()> {
 
                             if let Some(cpu) = state.restore(&rom, controllers) {
                                 instance.cpu = cpu;
-                                instance.renderer = SoftwareRenderer::new();
+                                instance.renderer.sync(instance.cpu.memory.cycles);
 
                                 None
                             } else {

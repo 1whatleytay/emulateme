@@ -1,5 +1,5 @@
 use crate::ppu::{Palette, Ppu};
-use crate::renderer::{Renderer, RenderAction, NES_WIDTH, RenderedFrame, NES_FRAME_SIZE};
+use crate::renderer::{Renderer, RenderAction, NES_WIDTH, RenderedFrame, NES_FRAME_SIZE, FrameRenderer};
 
 pub const NES_SCANLINE_WIDTH: usize = 341;
 pub const NES_SCANLINE_COUNT: usize = 262;
@@ -84,7 +84,8 @@ pub struct SoftwareRenderer {
     pub scan_y: usize,
     last_cycle: u64,
     pre_rendered_sprites: Option<PreRenderedScanline>,
-    frame: RenderedFrame,
+    frame: Box<RenderedFrame>,
+    ready_frame: Option<Box<RenderedFrame>>,
 }
 
 impl Default for RenderedFrame {
@@ -254,6 +255,10 @@ impl SoftwareRenderer {
 }
 
 impl Renderer for SoftwareRenderer {
+    fn sync(&mut self, cycles: u64) {
+        self.last_cycle = cycles;
+    }
+
     fn render(&mut self, ppu: &mut Ppu, cycle: u64) -> RenderAction {
         let diff = (cycle - self.last_cycle) * 3;
         self.last_cycle = cycle;
@@ -303,9 +308,17 @@ impl Renderer for SoftwareRenderer {
         }
 
         if has_v_blank && ppu.registers.control.gen_nmi {
-            RenderAction::SendFrame(std::mem::take(&mut self.frame))
+            self.ready_frame = Some(std::mem::take(&mut self.frame));
+
+            RenderAction::SendNMI
         } else {
             RenderAction::None
         }
+    }
+}
+
+impl FrameRenderer for SoftwareRenderer {
+    fn take(&mut self) -> Option<Box<RenderedFrame>> {
+        self.ready_frame.take()
     }
 }

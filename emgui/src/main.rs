@@ -1,19 +1,21 @@
 use std::{env, fs, thread};
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
+use bitflags::Flags;
 use winit::event::ElementState;
 use winit::keyboard::{KeyCode, PhysicalKey};
 use emulateme::controller::{Controller, ControllerFlags, GenericController, NoController};
 use emulateme::cpu::Cpu;
-use emulateme::renderer::{NES_HEIGHT, NES_WIDTH, RenderAction, RenderedFrame, Renderer};
+use emulateme::renderer::{NES_HEIGHT, NES_WIDTH, RenderAction, Renderer, FrameRenderer};
 use emulateme::rom::parse_rom;
-use emulateme::software::SoftwareRenderer;
 use emulateme::state::CpuState;
+use crate::hardware::{create_device, HardwareRenderer};
 use crate::streamer::Streamer;
 use crate::window::WindowDetails;
 
 mod window;
 mod streamer;
+mod hardware;
 
 const STATE_FILE: &str = "state.dat";
 
@@ -56,7 +58,7 @@ fn main() {
 
     let streamer = Streamer::new(&window.details, NES_WIDTH, NES_HEIGHT);
 
-    let frame_data = Arc::new(Mutex::new(Some(RenderedFrame::default())));
+    let frame_data = Arc::new(Mutex::new(Some(Box::default())));
 
     let window_arc = window.window.clone();
     let frame_arc = frame_data.clone();
@@ -73,7 +75,10 @@ fn main() {
     thread::spawn(move || {
         let mut cpu = Cpu::new(&rom, None, (controller_copy, NoController));
 
-        let mut renderer = SoftwareRenderer::new();
+        let device = pollster::block_on(create_device())
+            .expect("Failed to create device for hardware rendering.");
+
+        let mut renderer = HardwareRenderer::new(&device.device, &device.queue);
 
         loop {
             if store.swap(false, Ordering::Relaxed) {
@@ -92,7 +97,7 @@ fn main() {
                 let state: CpuState = postcard::from_bytes(&data).unwrap();
 
                 cpu = state.restore(&rom, cpu.memory.controllers).unwrap();
-                renderer = SoftwareRenderer::new();
+                renderer.sync(cpu.memory.cycles);
 
                 println!("Read and restored CPU state from {}", STATE_FILE);
             }
@@ -102,15 +107,15 @@ fn main() {
 
                 match renderer.render(&mut cpu.memory.ppu, cpu.memory.cycles) {
                     RenderAction::None => {},
-                    RenderAction::SendFrame(frame) => {
-                        let mut frame_data = frame_arc.lock().unwrap();
+                    RenderAction::SendNMI => cpu.interrupt(cpu.vectors.nmi).unwrap()
+                }
 
-                        *frame_data = Some(frame);
+                if let Some(frame) = renderer.take() {
+                    let mut frame_data = frame_arc.lock().unwrap();
 
-                        window_arc.request_redraw();
+                    *frame_data = Some(frame);
 
-                        cpu.interrupt(cpu.vectors.nmi).unwrap()
-                    }
+                    window_arc.request_redraw();
                 }
             }
         }

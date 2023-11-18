@@ -212,7 +212,7 @@ impl<'a> Streamer<'a> {
             ],
         });
 
-        let shader = details.device.create_shader_module(include_wgsl!("shader.wgsl"));
+        let shader = details.device.create_shader_module(include_wgsl!("flat.wgsl"));
 
         let pipeline_layout = details.device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("MainPipelineLayout"),
@@ -257,8 +257,7 @@ impl<'a> Streamer<'a> {
             topology: PrimitiveTopology::TriangleList,
             strip_index_format: None,
             front_face: FrontFace::Ccw,
-            cull_mode: None,
-            // cull_mode: Some(Face::Back),
+            cull_mode: Some(Face::Back),
             unclipped_depth: false,
             polygon_mode: PolygonMode::Fill,
             conservative: false,
