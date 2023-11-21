@@ -78,7 +78,7 @@ fn main() {
         let device = pollster::block_on(create_device())
             .expect("Failed to create device for hardware rendering.");
 
-        let mut renderer = HardwareRenderer::new(&device.device, &device.queue);
+        let mut renderer = HardwareRenderer::new(&device.device, &device.queue, &rom);
 
         loop {
             if store.swap(false, Ordering::Relaxed) {
@@ -107,15 +107,18 @@ fn main() {
 
                 match renderer.render(&mut cpu.memory.ppu, cpu.memory.cycles) {
                     RenderAction::None => {},
-                    RenderAction::SendNMI => cpu.interrupt(cpu.vectors.nmi).unwrap()
-                }
+                    RenderAction::SendNMI => {
+                        // might fuck things up
+                        if let Some(frame) = renderer.take() {
+                            let mut frame_data = frame_arc.lock().unwrap();
 
-                if let Some(frame) = renderer.take() {
-                    let mut frame_data = frame_arc.lock().unwrap();
+                            *frame_data = Some(frame);
 
-                    *frame_data = Some(frame);
+                            window_arc.request_redraw();
+                        }
 
-                    window_arc.request_redraw();
+                        cpu.interrupt(cpu.vectors.nmi).unwrap()
+                    }
                 }
             }
         }

@@ -93,13 +93,15 @@ impl<'a> NesInstance<'a> {
 
             match self.renderer.render(&mut self.cpu.memory.ppu, self.cpu.memory.cycles) {
                 RenderAction::None => { },
-                RenderAction::SendNMI => self.cpu.interrupt(self.cpu.vectors.nmi)?
-            }
+                RenderAction::SendNMI => {
+                    if let Some(frame) = self.renderer.take() {
+                        frame_count += 1;
 
-            if let Some(frame) = self.renderer.take() {
-                frame_count += 1;
+                        self.frame = frame;
+                    }
 
-                self.frame = frame;
+                    self.cpu.interrupt(self.cpu.vectors.nmi)?
+                }
             }
         }
 
