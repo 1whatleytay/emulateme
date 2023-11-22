@@ -1,7 +1,7 @@
 use std::{env, fs, thread};
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use winit::event::ElementState;
 use winit::keyboard::{KeyCode, PhysicalKey};
 use emulateme::controller::{Controller, ControllerFlags, GenericController, NoController};
@@ -120,9 +120,13 @@ fn main() {
 
             // might fuck things up
             if let Some(frame) = renderer.take() {
-                let mut frame_data = frame_arc.lock().unwrap();
+                {
+                    let mut frame_data = frame_arc.lock().unwrap();
 
-                *frame_data = Some(frame);
+                    *frame_data = Some(frame);
+                }
+
+                thread::sleep(Duration::from_secs_f64(1.0 / 86.0));
 
                 window_arc.request_redraw();
             }
@@ -132,13 +136,17 @@ fn main() {
     });
 
     window.run(event_loop, || {
-        let Ok(mut frame) = frame_data.try_lock() else {
-            window.window.request_redraw();
+        let value = {
+            let Ok(mut frame) = frame_data.try_lock() else {
+                window.window.request_redraw();
 
-            return;
+                return;
+            };
+
+            frame.take()
         };
 
-        if let Some(frame) = frame.take() {
+        if let Some(frame) = value {
             streamer.render_frame(&frame.frame, window.size.get()).unwrap();
         } else {
             streamer.redraw_frame(window.size.get()).unwrap();

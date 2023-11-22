@@ -68,7 +68,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     }
 
     if (flip_y) {
-        y = u32(7) - x;
+        y = u32(7) - y;
     }
 
     let palette_index = in.sprite_mask & u32(3);

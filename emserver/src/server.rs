@@ -7,7 +7,7 @@ use prost::Message;
 use emulateme::controller::{ControllerFlags, GenericController, NoController};
 use emulateme::cpu::Cpu;
 use emulateme::interpreter::CpuError;
-use emulateme::renderer::{RenderAction, RenderedFrame, Renderer};
+use emulateme::renderer::{RenderAction, RenderedFrame, Renderer, FrameRenderer};
 use emulateme::rom::Rom;
 use emulateme::software::SoftwareRenderer;
 use emulateme::state::CpuState;
