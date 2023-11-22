@@ -52,7 +52,7 @@ pub fn configure_surface(details: &StreamerDetails, size: PhysicalSize<u32>) {
         format: details.format,
         width: size.width,
         height: size.height,
-        present_mode: PresentMode::AutoVsync,
+        present_mode: PresentMode::Immediate,
         alpha_mode: CompositeAlphaMode::Auto,
         view_formats: vec![],
     })

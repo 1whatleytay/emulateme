@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 use anyhow::{anyhow, Result};
 use bitflags::Flags;
-use wgpu::{Adapter, Buffer, BufferDescriptor, BufferUsages, Color, CommandEncoderDescriptor, Device, DeviceDescriptor, Extent3d, ImageCopyBuffer, ImageCopyTexture, ImageDataLayout, Instance, InstanceDescriptor, LoadOp, Maintain, MapMode, Operations, Queue, RenderPassColorAttachment, RenderPassDescriptor, RequestAdapterOptions, StoreOp, Texture, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages, TextureView, TextureViewDescriptor};
+use wgpu::{Adapter, Buffer, BufferDescriptor, BufferUsages, Color, CommandEncoderDescriptor, Device, DeviceDescriptor, Extent3d, ImageCopyBuffer, ImageCopyTexture, ImageDataLayout, Instance, InstanceDescriptor, LoadOp, Maintain, MapMode, Operations, Queue, RenderPassColorAttachment, RenderPassDepthStencilAttachment, RenderPassDescriptor, RequestAdapterOptions, StoreOp, Texture, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages, TextureView, TextureViewDescriptor};
 use emulateme::ppu::Ppu;
 use emulateme::renderer::{FrameRenderer, NES_HEIGHT, NES_WIDTH, RenderAction, RenderedFrame, Renderer};
 use emulateme::rom::Rom;
@@ -25,9 +25,9 @@ pub struct HardwareRenderer<'a, 'b> {
     queue: &'b Queue,
     render_texture: Texture,
     render_texture_view: TextureView,
+    depth_texture_view: TextureView,
     render_information: Arc<Mutex<RenderInformation>>,
 
-    shared: SharedRenderer,
     background: BackgroundRenderer,
     sprite: SpriteRenderer,
 
@@ -108,7 +108,14 @@ impl<'a, 'b> HardwareRenderer<'a, 'b> {
                         },
                     })
                 ],
-                depth_stencil_attachment: None,
+                depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
+                    view: &self.depth_texture_view,
+                    depth_ops: Some(Operations {
+                        load: LoadOp::Clear(1.0),
+                        store: StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
@@ -185,6 +192,23 @@ impl<'a, 'b> HardwareRenderer<'a, 'b> {
 
         let render_texture_view = render_texture.create_view(&TextureViewDescriptor::default());
 
+        let depth_texture = device.create_texture(&TextureDescriptor {
+            label: Some("RenderDepthTexture"),
+            size: Extent3d {
+                width: 256,
+                height: 240,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Depth32Float,
+            usage: TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+
+        let depth_texture_view = depth_texture.create_view(&TextureViewDescriptor::default());
+
         let render_buffer = device.create_buffer(&BufferDescriptor {
             label: Some("RenderBufferDestination"),
             size: (NES_WIDTH * NES_HEIGHT * 4) as u64,
@@ -211,7 +235,7 @@ impl<'a, 'b> HardwareRenderer<'a, 'b> {
             render_texture,
             render_information,
             render_texture_view,
-            shared,
+            depth_texture_view,
             background,
             sprite,
         }
@@ -230,35 +254,52 @@ impl<'a, 'b> Renderer for HardwareRenderer<'a, 'b> {
 
         let mut has_v_blank = false;
 
-        for _ in 0..diff {
-            match self.scan_y {
-                0 ..= 239 => { }
-                241 => {
-                    if self.scan_x == 1 {
-                        has_v_blank = true;
-                    }
-                }
-                261 => {
-                    if self.scan_x == 1 {
-                        ppu.registers.status.sprite_hit = false;
-                    }
-                }
-                _ => { /* idle */ }
+        let start_x = self.scan_x;
+        let start_y = self.scan_y;
+
+        self.scan_x += diff as usize;
+
+        // Assumptions on the magnitude of cycles taken!
+        while self.scan_x >= NES_SCANLINE_WIDTH {
+            self.scan_x -= NES_SCANLINE_WIDTH;
+            self.scan_y += 1;
+
+            while self.scan_y >= NES_SCANLINE_COUNT {
+                self.scan_y -= NES_SCANLINE_COUNT;
             }
 
-            self.scan_x += 1;
-
-            if self.scan_x >= NES_SCANLINE_WIDTH {
-                self.scan_x = 0;
-                self.scan_y += 1;
-
-                if self.scan_y >= NES_SCANLINE_COUNT {
-                    self.scan_y = 0;
-                }
-            }
+            self.background.write_offset(
+                self.scan_y,
+                ppu.registers.render.x_scroll(),
+                ppu.registers.render.name_table_x()
+            )
         }
 
-        ppu.registers.status.sprite_hit = !ppu.registers.status.sprite_hit;
+        macro_rules! passed {
+            ($line: expr, $col: expr) => {
+                (self.scan_y > $line || (self.scan_y == $line && self.scan_x >= $col))
+                    && (start_y < $line || (start_y == $line && start_x < $col))
+            };
+        }
+
+        if passed!(241, 1) {
+            has_v_blank = true;
+        }
+
+        let zero = &ppu.memory.oam[0];
+
+        let zero_x = zero.x as usize;
+        let zero_y = zero.y as usize;
+
+        // no collision checks so we do a manual offset here :|
+        // cursed
+        if passed!(zero_y + 5, zero_x) {
+            ppu.registers.status.sprite_hit = true;
+        }
+
+        if passed!(261, 1) {
+            ppu.registers.status.sprite_hit = false;
+        }
 
         if has_v_blank && ppu.registers.control.gen_nmi {
             self.render_contents(ppu);
