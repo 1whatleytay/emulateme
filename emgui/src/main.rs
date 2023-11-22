@@ -8,6 +8,7 @@ use emulateme::controller::{Controller, ControllerFlags, GenericController, NoCo
 use emulateme::cpu::Cpu;
 use emulateme::renderer::{NES_HEIGHT, NES_WIDTH, RenderAction, Renderer, FrameRenderer};
 use emulateme::rom::parse_rom;
+use emulateme::software::SoftwareRenderer;
 use emulateme::state::CpuState;
 use crate::hardware::{create_device, HardwareRenderer};
 use crate::streamer::Streamer;
@@ -79,7 +80,6 @@ fn main() {
             .expect("Failed to create device for hardware rendering.");
 
         let mut renderer = HardwareRenderer::new(&device.device, &device.queue, &rom);
-
         loop {
             if store.swap(false, Ordering::Relaxed) {
                 let state = CpuState::from(&cpu);

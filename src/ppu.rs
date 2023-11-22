@@ -59,7 +59,7 @@ pub struct RenderRegister {
     pub w: bool
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct Sprite {
     pub y: u8,
     pub number: u8,
