@@ -1,7 +1,7 @@
 use wgpu::{BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferBindingType, BufferDescriptor, BufferUsages, ColorTargetState, ColorWrites, CompareFunction, DepthStencilState, Device, Extent3d, Face, FragmentState, FrontFace, ImageCopyTexture, ImageDataLayout, include_wgsl, PipelineLayoutDescriptor, PolygonMode, PrimitiveState, PrimitiveTopology, Queue, RenderPass, RenderPipeline, RenderPipelineDescriptor, ShaderStages, Texture, TextureDescriptor, TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureView, TextureViewDescriptor, TextureViewDimension, VertexAttribute, VertexBufferLayout, VertexFormat, VertexState, VertexStepMode};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use emulateme::ppu::Ppu;
-use crate::hardware::shared::{HardwarePaletteMemory, SharedRenderer};
+use crate::shared::{HardwarePaletteMemory, SharedRenderer};
 
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Zeroable, bytemuck::Pod)]

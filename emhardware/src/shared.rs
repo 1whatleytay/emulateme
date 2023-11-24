@@ -1,6 +1,6 @@
 use wgpu::{Device, Extent3d, ImageCopyTexture, ImageDataLayout, Queue, Texture, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages, TextureView, TextureViewDescriptor};
 use emulateme::rom::Rom;
-use crate::hardware::palette::NES_PALETTE;
+use crate::palette::NES_PALETTE;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Zeroable, bytemuck::Pod)]

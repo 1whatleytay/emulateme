@@ -1,23 +1,24 @@
 use std::sync::{Arc, Mutex};
 use anyhow::{anyhow, Result};
+#[allow(unused_imports)]
 use bitflags::Flags;
-use wgpu::{Adapter, Buffer, BufferDescriptor, BufferUsages, Color, CommandEncoderDescriptor, Device, DeviceDescriptor, Extent3d, ImageCopyBuffer, ImageCopyTexture, ImageDataLayout, Instance, InstanceDescriptor, LoadOp, Maintain, MapMode, Operations, Queue, RenderPassColorAttachment, RenderPassDepthStencilAttachment, RenderPassDescriptor, RequestAdapterOptions, StoreOp, Texture, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages, TextureView, TextureViewDescriptor};
+use wgpu::{Adapter, Buffer, BufferDescriptor, BufferUsages, Color, CommandEncoderDescriptor, Device, DeviceDescriptor, Extent3d, ImageCopyBuffer, ImageCopyTexture, ImageDataLayout, Instance, InstanceDescriptor, LoadOp, Maintain, MaintainBase, MapMode, Operations, Queue, RenderPassColorAttachment, RenderPassDepthStencilAttachment, RenderPassDescriptor, RequestAdapterOptions, StoreOp, Texture, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages, TextureView, TextureViewDescriptor};
 use emulateme::ppu::Ppu;
-use emulateme::renderer::{FrameRenderer, NES_HEIGHT, NES_WIDTH, RenderAction, RenderedFrame, Renderer};
+use emulateme::renderer::{FrameReceiver, NES_HEIGHT, NES_WIDTH, RenderAction, RenderedFrame, Renderer};
 use emulateme::rom::Rom;
 use emulateme::software::{NES_SCANLINE_COUNT, NES_SCANLINE_WIDTH};
-use crate::hardware::background::BackgroundRenderer;
-use crate::hardware::palette::NES_PALETTE;
-use crate::hardware::shared::SharedRenderer;
-use crate::hardware::sprite::SpriteRenderer;
+use crate::background::BackgroundRenderer;
+use crate::palette::NES_PALETTE;
+use crate::shared::SharedRenderer;
+use crate::sprite::SpriteRenderer;
 
-struct RenderInformation {
+struct RenderInformation<Receiver: FrameReceiver + 'static> {
     render_buffer: Buffer,
-    frame: Option<Box<RenderedFrame>>,
     waiting_frame: bool,
+    receiver: Receiver,
 }
 
-pub struct HardwareRenderer<'a, 'b> {
+pub struct HardwareRenderer<'a, 'b, Receiver: FrameReceiver + Send + 'static> {
     last_cycle: u64,
     scan_x: usize,
     scan_y: usize,
@@ -26,18 +27,10 @@ pub struct HardwareRenderer<'a, 'b> {
     render_texture: Texture,
     render_texture_view: TextureView,
     depth_texture_view: TextureView,
-    render_information: Arc<Mutex<RenderInformation>>,
+    render_information: Arc<Mutex<RenderInformation<Receiver>>>,
 
     background: BackgroundRenderer,
     sprite: SpriteRenderer,
-
-    // palette_memory_buffer: Buffer,
-    // name_table_textures: Vec<Texture>,
-    // binding_groups: Vec<BindGroup>,
-    // render_texture: Texture,
-    // render_texture_view: TextureView,
-    // background_buffer: Buffer,
-    // background_pipeline: RenderPipeline,
 }
 
 pub struct DeviceDetails {
@@ -56,7 +49,7 @@ pub async fn create_device() -> Result<DeviceDetails> {
     });
 
     let adapter = instance.request_adapter(&RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::LowPower,
+        power_preference: wgpu::PowerPreference::HighPerformance,
         force_fallback_adapter: false,
         compatible_surface: None,
     }).await.ok_or_else(|| anyhow!("Failed to create adapter."))?;
@@ -75,7 +68,7 @@ pub async fn create_device() -> Result<DeviceDetails> {
     })
 }
 
-impl<'a, 'b> HardwareRenderer<'a, 'b> {
+impl<'a, 'b, Receiver: FrameReceiver + Send> HardwareRenderer<'a, 'b, Receiver> {
     pub fn render_contents(&mut self, ppu: &Ppu) {
         self.device.poll(Maintain::Wait);
 
@@ -169,12 +162,12 @@ impl<'a, 'b> HardwareRenderer<'a, 'b> {
                 render_information.render_buffer.unmap();
                 render_information.waiting_frame = false;
 
-                render_information.frame = Some(frame);
+                render_information.receiver.receive_frame(frame);
             });
         }
     }
 
-    pub fn new(device: &'a Device, queue: &'b Queue, rom: &Rom) -> HardwareRenderer<'a, 'b> {
+    pub fn new(device: &'a Device, queue: &'b Queue, rom: &Rom, receiver: Receiver) -> HardwareRenderer<'a, 'b, Receiver> {
         let render_texture = device.create_texture(&TextureDescriptor {
             label: Some("RenderingTexture"),
             size: Extent3d {
@@ -218,7 +211,7 @@ impl<'a, 'b> HardwareRenderer<'a, 'b> {
 
         let render_information = Arc::new(Mutex::new(RenderInformation {
             render_buffer,
-            frame: None,
+            receiver,
             waiting_frame: false
         }));
 
@@ -243,9 +236,13 @@ impl<'a, 'b> HardwareRenderer<'a, 'b> {
 }
 
 
-impl<'a, 'b> Renderer for HardwareRenderer<'a, 'b> {
+impl<'a, 'b, Receiver: FrameReceiver + Send> Renderer for HardwareRenderer<'a, 'b, Receiver> {
     fn sync(&mut self, cycles: u64) {
         self.last_cycle = cycles;
+    }
+
+    fn flush(&mut self) {
+        self.device.poll(Maintain::Wait);
     }
 
     fn render(&mut self, ppu: &mut Ppu, cycle: u64) -> RenderAction {
@@ -308,11 +305,5 @@ impl<'a, 'b> Renderer for HardwareRenderer<'a, 'b> {
         } else {
             RenderAction::None
         }
-    }
-}
-
-impl<'a, 'b> FrameRenderer for HardwareRenderer<'a, 'b> {
-    fn take(&mut self) -> Option<Box<RenderedFrame>> {
-        self.render_information.lock().unwrap().frame.take()
     }
 }

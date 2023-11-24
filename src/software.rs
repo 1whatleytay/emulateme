@@ -1,5 +1,5 @@
 use crate::ppu::{Palette, Ppu};
-use crate::renderer::{Renderer, RenderAction, NES_WIDTH, RenderedFrame, NES_FRAME_SIZE, FrameRenderer};
+use crate::renderer::{Renderer, RenderAction, NES_WIDTH, RenderedFrame, NES_FRAME_SIZE, FrameReceiver};
 
 pub const NES_SCANLINE_WIDTH: usize = 341;
 pub const NES_SCANLINE_COUNT: usize = 262;
@@ -78,14 +78,13 @@ struct PreRenderedScanline {
     foreground: [Option<Color>; NES_WIDTH]
 }
 
-#[derive(Default)]
-pub struct SoftwareRenderer {
+pub struct SoftwareRenderer<Receiver: FrameReceiver> {
     pub scan_x: usize,
     pub scan_y: usize,
     last_cycle: u64,
     pre_rendered_sprites: Option<PreRenderedScanline>,
     frame: Box<RenderedFrame>,
-    ready_frame: Option<Box<RenderedFrame>>,
+    receiver: Receiver
 }
 
 impl Default for RenderedFrame {
@@ -103,7 +102,7 @@ impl Default for PreRenderedScanline {
     }
 }
 
-impl SoftwareRenderer {
+impl<Receiver: FrameReceiver> SoftwareRenderer<Receiver> {
     fn render_sprite(&mut self, ppu: &mut Ppu, sprite: usize, x: usize, y: usize, palette: Palette) -> Option<Color> {
         let address = sprite * 8 * 2 + y;
         let plane_0 = ppu.memory.rom.chr_rom[address];
@@ -249,14 +248,25 @@ impl SoftwareRenderer {
             .unwrap_or_else(|| NES_PALETTE[ppu.memory.palette.background_solid as usize])
     }
 
-    pub fn new() -> SoftwareRenderer {
-        SoftwareRenderer::default()
+    pub fn new(receiver: Receiver) -> SoftwareRenderer<Receiver> {
+        SoftwareRenderer {
+            scan_x: 0,
+            scan_y: 0,
+            last_cycle: 0,
+            pre_rendered_sprites: None,
+            frame: Box::new(Default::default()),
+            receiver,
+        }
     }
 }
 
-impl Renderer for SoftwareRenderer {
+impl<Receiver: FrameReceiver> Renderer for SoftwareRenderer<Receiver> {
     fn sync(&mut self, cycles: u64) {
         self.last_cycle = cycles;
+    }
+
+    fn flush(&mut self) {
+        /* Nothing. */
     }
 
     fn render(&mut self, ppu: &mut Ppu, cycle: u64) -> RenderAction {
@@ -308,7 +318,7 @@ impl Renderer for SoftwareRenderer {
         }
 
         if has_v_blank && ppu.registers.control.gen_nmi {
-            self.ready_frame = Some(std::mem::take(&mut self.frame));
+            self.receiver.receive_frame(std::mem::take(&mut self.frame));
 
             RenderAction::SendNMI
         } else {
@@ -317,8 +327,8 @@ impl Renderer for SoftwareRenderer {
     }
 }
 
-impl FrameRenderer for SoftwareRenderer {
-    fn take(&mut self) -> Option<Box<RenderedFrame>> {
-        self.ready_frame.take()
-    }
-}
+// impl FrameRenderer for SoftwareRenderer {
+//     fn take(&mut self) -> Option<Box<RenderedFrame>> {
+//         self.ready_frame.take()
+//     }
+// }

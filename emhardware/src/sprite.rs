@@ -1,7 +1,7 @@
 use wgpu::{BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferBindingType, BufferDescriptor, BufferUsages, ColorTargetState, CompareFunction, DepthStencilState, Device, FragmentState, FrontFace, include_wgsl, PipelineLayoutDescriptor, PolygonMode, PrimitiveState, PrimitiveTopology, Queue, RenderPass, RenderPipeline, RenderPipelineDescriptor, ShaderStages, TextureFormat, TextureSampleType, TextureViewDimension, VertexAttribute, VertexBufferLayout, VertexFormat, VertexState, VertexStepMode};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use emulateme::ppu::Ppu;
-use crate::hardware::shared::{HardwarePaletteMemory, SharedRenderer};
+use crate::shared::{HardwarePaletteMemory, SharedRenderer};
 
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Zeroable, bytemuck::Pod)]
@@ -66,7 +66,7 @@ impl SpriteRenderer {
         render_pass.draw(0 .. 6, 0 .. 64);
     }
 
-    pub fn new(device: &Device, queue: &Queue, shared: &SharedRenderer) -> SpriteRenderer {
+    pub fn new(device: &Device, _: &Queue, shared: &SharedRenderer) -> SpriteRenderer {
         let sw = 8f32 / 256f32 * 2f32;
         let sh = 8f32 / 240f32 * 2f32;
 

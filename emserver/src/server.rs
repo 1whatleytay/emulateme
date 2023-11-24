@@ -1,13 +1,17 @@
 use std::collections::HashMap;
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::mpsc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::sync::mpsc::UnboundedReceiver;
+use async_trait::async_trait;
 
 use anyhow::{anyhow, Result};
 use prost::Message;
+use emhardware::{create_device, HardwareRenderer};
 use emulateme::controller::{ControllerFlags, GenericController, NoController};
 use emulateme::cpu::Cpu;
 use emulateme::interpreter::CpuError;
-use emulateme::renderer::{RenderAction, RenderedFrame, Renderer, FrameRenderer};
+use emulateme::renderer::{RenderAction, RenderedFrame, Renderer, FrameReceiver};
 use emulateme::rom::Rom;
 use emulateme::software::SoftwareRenderer;
 use emulateme::state::CpuState;
@@ -56,13 +60,72 @@ impl From<ControllerInput> for ControllerFlags {
     }
 }
 
-struct NesInstance<'a> {
+struct NesReceiver {
+    sender: mpsc::UnboundedSender<Box<RenderedFrame>>
+}
+
+struct NesInstance<'a, R: Renderer> {
     frame: Box<RenderedFrame>,
-    renderer: SoftwareRenderer,
+    renderer: R,
+    receiver: UnboundedReceiver<Box<RenderedFrame>>,
+    rom: &'a Rom,
     cpu: Cpu<'a, GenericController, NoController>
 }
 
-impl<'a> NesInstance<'a> {
+impl FrameReceiver for NesReceiver {
+    fn receive_frame(&mut self, frame: Box<RenderedFrame>) {
+        self.sender.send(frame).ok();
+    }
+}
+
+impl<'a, R: Renderer> NesInstance<'a, R> {
+    fn make_controllers() -> (GenericController, NoController) {
+        (GenericController::default(), NoController)
+    }
+
+    pub fn new<F: FnOnce(NesReceiver) -> R>(rom: &Rom, make_renderer: F) -> NesInstance<R> {
+        let (sender, receiver) = mpsc::unbounded_channel();
+
+        let frame_receiver = NesReceiver { sender };
+
+        NesInstance {
+            frame: Box::default(),
+            rom,
+            receiver,
+            cpu: Cpu::new(rom, None, Self::make_controllers()),
+            renderer: make_renderer(frame_receiver),
+        }
+    }
+}
+
+#[async_trait]
+trait NesExecutable {
+    fn save(&self) -> CpuState;
+    fn restore(&mut self, state: CpuState) -> Option<()>;
+
+    fn get_frame(&self) -> Box<RenderedFrame>;
+
+    fn get_values(&mut self, requests: &HashMap<String, u32>) -> HashMap<String, u32>;
+    async fn run_frames(&mut self, skip_frames: usize, input: ControllerFlags) -> Result<(), CpuError>;
+}
+
+#[async_trait]
+impl<'a, R: Renderer + Send> NesExecutable for NesInstance<'a, R> {
+    fn save(&self) -> CpuState {
+        (&self.cpu).into()
+    }
+
+    fn restore(&mut self, state: CpuState) -> Option<()> {
+        self.cpu = state.restore(self.rom, Self::make_controllers())?;
+        self.renderer.sync(self.cpu.memory.cycles);
+
+        Some(())
+    }
+
+    fn get_frame(&self) -> Box<RenderedFrame> {
+        self.frame.clone()
+    }
+
     fn get_values(&mut self, requests: &HashMap<String, u32>) -> HashMap<String, u32> {
         let mut values = HashMap::new();
 
@@ -83,7 +146,7 @@ impl<'a> NesInstance<'a> {
         values
     }
 
-    pub fn run_frames(&mut self, skip_frames: usize, input: ControllerFlags) -> Result<(), CpuError> {
+    async fn run_frames(&mut self, skip_frames: usize, input: ControllerFlags) -> Result<(), CpuError> {
         let mut frame_count = 0;
 
         self.cpu.memory.controllers.0.press(input);
@@ -94,26 +157,24 @@ impl<'a> NesInstance<'a> {
             match self.renderer.render(&mut self.cpu.memory.ppu, self.cpu.memory.cycles) {
                 RenderAction::None => { },
                 RenderAction::SendNMI => {
-                    if let Some(frame) = self.renderer.take() {
-                        frame_count += 1;
-
-                        self.frame = frame;
-                    }
+                    frame_count += 1;
 
                     self.cpu.interrupt(self.cpu.vectors.nmi)?
                 }
             }
         }
 
-        Ok(())
-    }
+        self.renderer.flush();
 
-    pub fn new(rom: &Rom) -> NesInstance {
-        NesInstance {
-            frame: Box::default(),
-            cpu: Cpu::new(rom, None, (GenericController::default(), NoController)),
-            renderer: SoftwareRenderer::new(),
+        let mut frames = vec![];
+        self.receiver.recv_many(&mut frames, skip_frames).await;
+
+        // Grab most recent frame!
+        if let Some(frame) = frames.pop() {
+            self.frame = frame;
         }
+
+        Ok(())
     }
 }
 
@@ -131,7 +192,10 @@ async fn send_message<M: prost::Message>(stream: &mut TcpStream, message: M) -> 
 async fn client_connection(rom: Rom, stream: &mut TcpStream) -> Result<()> {
     let mut delimiter = Delimiter::default();
 
-    let mut instance = Box::new(NesInstance::new(&rom));
+    // let device = create_device().await?;
+    let make_renderer = SoftwareRenderer::new; // |r| HardwareRenderer::new(&device.device, &device.queue, &rom, r);
+
+    let mut instance: Box<dyn NesExecutable + Send + Sync> = Box::new(NesInstance::new(&rom, make_renderer));
 
     loop {
         let mut buffer = [0; 8192];
@@ -178,7 +242,7 @@ async fn client_connection(rom: Rom, stream: &mut TcpStream) -> Result<()> {
                     send_message(stream, Response {
                         contents: Some(ResponseContents::FrameDetails(FrameDetails {
                             frame: Some(FrameContents {
-                                frame: instance.frame.frame.to_vec(),
+                                frame: instance.get_frame().frame.to_vec(),
                                 memory_values: instance.get_values(&frame.memory_requests),
                             }),
                         }))
@@ -189,7 +253,7 @@ async fn client_connection(rom: Rom, stream: &mut TcpStream) -> Result<()> {
                         .map(ControllerFlags::from)
                         .unwrap_or(ControllerFlags::empty());
 
-                    if let Err(err) = instance.run_frames(action.skip_frames as usize, flags) {
+                    if let Err(err) = instance.run_frames(action.skip_frames as usize, flags).await {
                         send_message(stream, Response {
                             contents: Some(ResponseContents::ActionResult(ActionResult {
                                 frame: None,
@@ -205,7 +269,7 @@ async fn client_connection(rom: Rom, stream: &mut TcpStream) -> Result<()> {
                     send_message(stream, Response {
                         contents: Some(ResponseContents::ActionResult(ActionResult {
                             frame: Some(FrameContents {
-                                frame: instance.frame.frame.to_vec(),
+                                frame: instance.get_frame().frame.to_vec(),
                                 memory_values: instance.get_values(&action.memory_requests),
                             }),
                             error: None,
@@ -213,7 +277,7 @@ async fn client_connection(rom: Rom, stream: &mut TcpStream) -> Result<()> {
                     }).await?;
                 }
                 RequestContents::GetState(_) => {
-                    let state: CpuState = (&instance.cpu).into();
+                    let state = instance.save();
 
                     let bytes = postcard::to_allocvec(&state)
                         .unwrap_or_default();
@@ -227,15 +291,10 @@ async fn client_connection(rom: Rom, stream: &mut TcpStream) -> Result<()> {
                 RequestContents::SetState(state) => {
                     let error = match postcard::from_bytes::<CpuState>(&state.state) {
                         Ok(state) => {
-                            let controllers = (GenericController::default(), NoController);
-
-                            if let Some(cpu) = state.restore(&rom, controllers) {
-                                instance.cpu = cpu;
-                                instance.renderer.sync(instance.cpu.memory.cycles);
-
-                                None
-                            } else {
+                            if instance.restore(state).is_none() {
                                 Some("Failed to create CPU instance from state.".to_string())
+                            } else {
+                                None
                             }
                         }
                         Err(err) => Some(format!("{err}"))

@@ -457,6 +457,7 @@ dependencies = [
  "anyhow",
  "bitflags 2.4.1",
  "bytemuck",
+ "emhardware",
  "emulateme",
  "env_logger",
  "log",
@@ -465,6 +466,17 @@ dependencies = [
  "serde",
  "wgpu",
  "winit",
+]
+
+[[package]]
+name = "emhardware"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bitflags 2.4.1",
+ "bytemuck",
+ "emulateme",
+ "wgpu",
 ]
 
 [[package]]

@@ -4,18 +4,18 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use winit::event::ElementState;
 use winit::keyboard::{KeyCode, PhysicalKey};
+use winit::window::Window;
+use emhardware::{create_device, HardwareRenderer};
 use emulateme::controller::{Controller, ControllerFlags, GenericController, NoController};
 use emulateme::cpu::Cpu;
-use emulateme::renderer::{NES_HEIGHT, NES_WIDTH, RenderAction, Renderer, FrameRenderer};
+use emulateme::renderer::{NES_HEIGHT, NES_WIDTH, RenderAction, Renderer, FrameReceiver, RenderedFrame};
 use emulateme::rom::parse_rom;
 use emulateme::state::CpuState;
-use crate::hardware::{create_device, HardwareRenderer};
 use crate::streamer::Streamer;
 use crate::window::WindowDetails;
 
 mod window;
 mod streamer;
-mod hardware;
 
 const STATE_FILE: &str = "state.dat";
 
@@ -37,6 +37,23 @@ impl Controller for GuiController {
         let mut state = self.inner.lock().unwrap();
 
         state.read(clock)
+    }
+}
+
+struct GuiReceiver {
+    window: Arc<Window>,
+    frame: Arc<Mutex<Option<Box<RenderedFrame>>>>,
+}
+
+impl FrameReceiver for GuiReceiver {
+    fn receive_frame(&mut self, frame: Box<RenderedFrame>) {
+        {
+            let mut frame_data = self.frame.lock().unwrap();
+
+            *frame_data = Some(frame);
+        }
+
+        self.window.request_redraw();
     }
 }
 
@@ -78,7 +95,9 @@ fn main() {
         let device = pollster::block_on(create_device())
             .expect("Failed to create device for hardware rendering.");
 
-        let mut renderer = HardwareRenderer::new(&device.device, &device.queue, &rom);
+        let receiver = GuiReceiver { window: window_arc, frame: frame_arc };
+
+        let mut renderer = HardwareRenderer::new(&device.device, &device.queue, &rom, receiver);
 
         let instant = Instant::now();
         let mut frames = 0;
@@ -116,19 +135,6 @@ fn main() {
                         cpu.interrupt(cpu.vectors.nmi).unwrap()
                     }
                 }
-            }
-
-            // might fuck things up
-            if let Some(frame) = renderer.take() {
-                {
-                    let mut frame_data = frame_arc.lock().unwrap();
-
-                    *frame_data = Some(frame);
-                }
-
-                thread::sleep(Duration::from_secs_f64(1.0 / 86.0));
-
-                window_arc.request_redraw();
             }
 
             println!("FPS: {}", frames as f32 / instant.elapsed().as_secs_f32());
