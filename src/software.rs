@@ -84,7 +84,7 @@ pub struct SoftwareRenderer {
     pub scan_y: usize,
     last_cycle: u64,
     pre_rendered_sprites: Option<PreRenderedScanline>,
-    frame: RenderedFrame,
+    frame: Box<RenderedFrame>,
 }
 
 impl Default for RenderedFrame {

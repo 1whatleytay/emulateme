@@ -13,7 +13,7 @@ pub struct RenderedFrame {
 pub enum RenderAction {
     None,
     // Equivalent ot Send NMI
-    SendFrame(RenderedFrame)
+    SendFrame(Box<RenderedFrame>)
 }
 
 pub trait Renderer {

@@ -61,7 +61,7 @@ impl From<&ControllerInput> for ControllerFlags {
 type StreamStates = Arc<Mutex<HashMap<u32, StreamDetails>>>;
 
 struct NesInstance<'a> {
-    frame: RenderedFrame,
+    frame: Box<RenderedFrame>,
     renderer: SoftwareRenderer,
     cpu: Cpu<'a, GenericController, NoController>
 }
@@ -112,7 +112,7 @@ impl<'a> NesInstance<'a> {
 
     pub fn new(rom: &Rom) -> NesInstance {
         NesInstance {
-            frame: RenderedFrame::default(),
+            frame: Box::default(),
             cpu: Cpu::new(rom, None, (GenericController::default(), NoController)),
             renderer: SoftwareRenderer::new(),
         }
@@ -352,7 +352,9 @@ pub async fn run_server(rom: &'_ Rom, address: &'_ str) -> Result<()> {
         let states_clone = states.clone();
 
         tokio::spawn(async move {
-            client_connection(rom_clone, stream, states_clone).await.unwrap();
+            if let Err(error) = client_connection(rom_clone, stream, states_clone).await {
+                println!("{error}")
+            }
         });
     }
 }
