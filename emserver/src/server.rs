@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -12,12 +13,13 @@ use emulateme::rom::Rom;
 use emulateme::software::SoftwareRenderer;
 use emulateme::state::CpuState;
 use crate::delimiter::Delimiter;
-use crate::messages::{ActionError, ActionResult, ControllerInput, FrameContents, FrameDetails, Pong, Request, Response, SetStateResult, StateDetails};
-use crate::messages::request::Contents as RequestContents;
-use crate::messages::response::Contents as ResponseContents;
+use crate::messages::{ActionError, ActionResult, ControllerInput, StreamDetails, EmulatorRequest, FrameContents, FrameDetails, InitializeRequest, InitializeType, Ping, Pong, SetStateResult, StateDetails, StreamRequest};
+use crate::messages::stream_request::Contents as StreamContents;
+use crate::messages::initialize_request::Contents as InitializeContents;
+use crate::messages::emulator_request::Contents as EmulatorContents;
 
-impl From<ControllerInput> for ControllerFlags {
-    fn from(value: ControllerInput) -> Self {
+impl From<&ControllerInput> for ControllerFlags {
+    fn from(value: &ControllerInput) -> Self {
         let mut flags = ControllerFlags::empty();
 
         if value.a {
@@ -55,6 +57,8 @@ impl From<ControllerInput> for ControllerFlags {
         flags
     }
 }
+
+type StreamStates = Arc<Mutex<HashMap<u32, StreamDetails>>>;
 
 struct NesInstance<'a> {
     frame: RenderedFrame,
@@ -126,36 +130,43 @@ async fn send_message<M: prost::Message>(stream: &mut TcpStream, message: M) -> 
     Ok(())
 }
 
-async fn client_connection(rom: Rom, stream: &mut TcpStream) -> Result<()> {
-    let mut delimiter = Delimiter::default();
+async fn read_into(delimiter: &mut Delimiter, stream: &mut TcpStream) -> Result<()> {
+    let mut buffer = [0; 8192];
 
+    let n = match stream.read(&mut buffer).await {
+        Ok(n) => n,
+        Err(err) => {
+            return Err(anyhow!("Connection closed ({err})."))
+        }
+    };
+
+    if n == 0 {
+        return Err(anyhow!("Connection closed (empty read)."))
+    }
+
+    delimiter.push(&buffer[0 .. n]);
+
+    Ok(())
+}
+
+async fn pong(stream: &mut TcpStream, request: Ping) -> Result<()> {
+    send_message(stream, Pong {
+        server: "em-server-1".to_string(),
+        content: request.content,
+    }).await
+}
+
+async fn nes_instance(rom: Rom, mut delimiter: Delimiter, mut stream: TcpStream, states: StreamStates) -> Result<()> {
     let mut instance = Box::new(NesInstance::new(&rom));
 
     loop {
-        let mut buffer = [0; 8192];
-
-        let n = match stream.read(&mut buffer).await {
-            Ok(n) => n,
-            Err(err) => {
-                println!("Connection closed ({err}).");
-
-                break
-            }
-        };
-
-        if n == 0 {
-            println!("Connection closed (empty read).");
-
-            break
-        }
-
-        delimiter.push(&buffer[0 .. n]);
+        read_into(&mut delimiter, &mut stream).await?;
 
         while let Some(packet) = delimiter.pop() {
-            let request = match Request::decode(&packet[..]) {
+            let request = match EmulatorRequest::decode(&packet[..]) {
                 Ok(n) => n,
                 Err(err) => {
-                    println!("Failed to decode response ({err})");
+                    println!("Failed to decode emulator request ({err})");
 
                     continue
                 }
@@ -164,65 +175,66 @@ async fn client_connection(rom: Rom, stream: &mut TcpStream) -> Result<()> {
             let contents = request.contents.ok_or_else(|| anyhow!("Missing contents."))?;
 
             match contents {
-                RequestContents::Ping(request) => {
-                    send_message(stream, Response {
-                        contents: Some(ResponseContents::Pong(Pong {
-                            server: "em-server-1".to_string(),
-                            content: request.content,
-                        })),
+                EmulatorContents::Ping(request) => {
+                    pong(&mut stream, request).await?;
+                }
+                EmulatorContents::GetFrame(frame) => {
+                    send_message(&mut stream, FrameDetails {
+                        frame: Some(FrameContents {
+                            frame: instance.frame.frame.to_vec(),
+                            memory_values: instance.get_values(&frame.memory_requests),
+                        }),
                     }).await?;
                 }
-                RequestContents::GetFrame(frame) => {
-                    send_message(stream, Response {
-                        contents: Some(ResponseContents::FrameDetails(FrameDetails {
-                            frame: Some(FrameContents {
-                                frame: instance.frame.frame.to_vec(),
-                                memory_values: instance.get_values(&frame.memory_requests),
-                            }),
-                        }))
-                    }).await?;
-                }
-                RequestContents::TakeAction(action) => {
-                    let flags = action.input
+                EmulatorContents::TakeAction(action) => {
+                    let flags = action.input.as_ref()
                         .map(ControllerFlags::from)
                         .unwrap_or(ControllerFlags::empty());
 
                     if let Err(err) = instance.run_frames(action.skip_frames as usize, flags) {
-                        send_message(stream, Response {
-                            contents: Some(ResponseContents::ActionResult(ActionResult {
-                                frame: None,
-                                error: Some(ActionError {
-                                    message: format!("CpuError: {err}"),
-                                }),
-                            }))
+                        send_message(&mut stream, ActionResult {
+                            frame: None,
+                            error: Some(ActionError {
+                                message: format!("CpuError: {err}"),
+                            }),
                         }).await?;
 
                         continue
                     }
 
-                    send_message(stream, Response {
-                        contents: Some(ResponseContents::ActionResult(ActionResult {
-                            frame: Some(FrameContents {
-                                frame: instance.frame.frame.to_vec(),
-                                memory_values: instance.get_values(&action.memory_requests),
-                            }),
-                            error: None,
-                        }))
+                    let memory_values = instance.get_values(&action.memory_requests);
+
+                    if let Some(stream) = action.stream_id {
+                        let details = StreamDetails {
+                            frame: instance.frame.frame.to_vec(),
+                            input: action.input.clone(),
+                            memory_values: memory_values.clone(),
+                        };
+
+                        let mut states = states.lock().unwrap();
+
+                        states.insert(stream, details);
+                    }
+
+                    send_message(&mut stream, ActionResult {
+                        frame: Some(FrameContents {
+                            frame: instance.frame.frame.to_vec(),
+                            memory_values,
+                        }),
+                        error: None,
                     }).await?;
                 }
-                RequestContents::GetState(_) => {
+                EmulatorContents::GetState(_) => {
                     let state: CpuState = (&instance.cpu).into();
 
                     let bytes = postcard::to_allocvec(&state)
                         .unwrap_or_default();
 
-                    send_message(stream, Response {
-                        contents: Some(ResponseContents::StateDetails(StateDetails {
-                            state: bytes,
-                        }))
+                    send_message(&mut stream, StateDetails {
+                        state: bytes,
                     }).await?;
                 }
-                RequestContents::SetState(state) => {
+                EmulatorContents::SetState(state) => {
                     let error = match postcard::from_bytes::<CpuState>(&state.state) {
                         Ok(state) => {
                             let controllers = (GenericController::default(), NoController);
@@ -239,35 +251,108 @@ async fn client_connection(rom: Rom, stream: &mut TcpStream) -> Result<()> {
                         Err(err) => Some(format!("{err}"))
                     };
 
-                    send_message(stream, Response {
-                        contents: Some(ResponseContents::SetStateResult(SetStateResult {
-                            parse_error: error
-                        }))
+                    send_message(&mut stream, SetStateResult {
+                        parse_error: error
                     }).await?;
                 }
             }
         }
     }
+}
 
-    println!("Connection closed.");
+async fn stream_instance(mut delimiter: Delimiter, mut stream: TcpStream, states: StreamStates) -> Result<()> {
+    loop {
+        read_into(&mut delimiter, &mut stream).await?;
 
-    Ok(())
+        while let Some(packet) = delimiter.pop() {
+            let request = match StreamRequest::decode(&packet[..]) {
+                Ok(n) => n,
+                Err(err) => {
+                    println!("Failed to decode stream request ({err})");
+
+                    continue
+                }
+            };
+
+            let contents = request.contents.ok_or_else(|| anyhow!("Missing contents."))?;
+
+            match contents {
+                StreamContents::Ping(request) => pong(&mut stream, request).await?,
+                StreamContents::GetStream(request) => {
+                    let frame = {
+                        let states = states.lock().unwrap();
+
+                        states.get(&request.stream_id).cloned()
+                    };
+
+                    if let Some(frame) = frame {
+                        send_message(&mut stream, frame).await?;
+                    } else {
+                        send_message(&mut stream, StreamDetails {
+                            frame: vec![],
+                            input: None,
+                            memory_values: Default::default(),
+                        }).await?;
+                    }
+                }
+            }
+        }
+    }
+}
+
+async fn client_connection(rom: Rom, mut stream: TcpStream, states: StreamStates) -> Result<()> {
+    let mut delimiter = Delimiter::default();
+
+    loop {
+        read_into(&mut delimiter, &mut stream).await?;
+
+        while let Some(packet) = delimiter.pop() {
+            let request = match InitializeRequest::decode(&packet[..]) {
+                Ok(n) => n,
+                Err(err) => {
+                    println!("Failed to decode stream request ({err})");
+
+                    continue
+                }
+            };
+
+            let contents = request.contents.ok_or_else(|| anyhow!("Missing contents."))?;
+
+            match contents {
+                InitializeContents::Ping(request) => pong(&mut stream, request).await?,
+                InitializeContents::Initialize(kind) => {
+                    let kind = InitializeType::try_from(kind)?;
+
+                    match kind {
+                        InitializeType::CreateEmulator => {
+                            return nes_instance(rom, delimiter, stream, states).await
+                        },
+                        InitializeType::OpenStream => {
+                            return stream_instance(delimiter, stream, states).await
+                        }
+                    }
+                },
+            }
+        }
+    }
 }
 
 pub async fn run_server(rom: &'_ Rom, address: &'_ str) -> Result<()> {
     let stream = TcpListener::bind(address).await?;
+    let states: StreamStates = Arc::default();
 
     println!("Awaiting connections...");
 
     loop {
-        let (mut stream, _) = stream.accept().await?;
+        let (stream, _) = stream.accept().await?;
 
         println!("Connection received!...");
 
         let rom_clone = rom.clone();
+        let states_clone = states.clone();
 
         tokio::spawn(async move {
-            client_connection(rom_clone, &mut stream).await.unwrap();
+            client_connection(rom_clone, stream, states_clone).await.unwrap();
         });
     }
 }

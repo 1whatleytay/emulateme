@@ -51,6 +51,8 @@ message TakeAction {
 
   ControllerInput input = 3;
   map<string, uint32> memory_requests = 4;
+
+  optional uint32 stream_id = 5;
 }
 
 message ActionError {
@@ -77,22 +79,41 @@ message SetStateResult {
   optional string parse_error = 2;
 }
 
-message Request {
+message GetStream {
+  uint32 stream_id = 1;
+}
+
+message StreamDetails {
+  bytes frame = 1;
+  ControllerInput input = 2;
+  map<string, uint32> memory_values = 3;
+}
+
+enum InitializeType {
+  CREATE_EMULATOR = 0;
+  OPEN_STREAM = 1;
+}
+
+message InitializeRequest {
+  oneof contents {
+    Ping ping = 1;
+    InitializeType initialize = 2;
+  }
+}
+
+message StreamRequest {
+  oneof contents {
+    Ping ping = 1;
+    GetStream get_stream = 2;
+  }
+}
+
+message EmulatorRequest {
   oneof contents {
     Ping ping = 1;
     GetFrame get_frame = 3;
     TakeAction take_action = 4;
     GetState get_state = 5;
     SetState set_state = 6;
-  }
-}
-
-message Response {
-  oneof contents {
-    Pong pong = 1;
-    FrameDetails frame_details = 3;
-    ActionResult action_result = 4;
-    StateDetails state_details = 5;
-    SetStateResult set_state_result = 6;
   }
 }

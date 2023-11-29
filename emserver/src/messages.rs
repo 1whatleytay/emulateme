@@ -72,6 +72,8 @@ pub struct TakeAction {
         ::prost::alloc::string::String,
         u32,
     >,
+    #[prost(uint32, optional, tag = "5")]
+    pub stream_id: ::core::option::Option<u32>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -110,12 +112,62 @@ pub struct SetStateResult {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Request {
-    #[prost(oneof = "request::Contents", tags = "1, 3, 4, 5, 6")]
-    pub contents: ::core::option::Option<request::Contents>,
+pub struct GetStream {
+    #[prost(uint32, tag = "1")]
+    pub stream_id: u32,
 }
-/// Nested message and enum types in `Request`.
-pub mod request {
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct StreamDetails {
+    #[prost(bytes = "vec", tag = "1")]
+    pub frame: ::prost::alloc::vec::Vec<u8>,
+    #[prost(message, optional, tag = "2")]
+    pub input: ::core::option::Option<ControllerInput>,
+    #[prost(map = "string, uint32", tag = "3")]
+    pub memory_values: ::std::collections::HashMap<::prost::alloc::string::String, u32>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct InitializeRequest {
+    #[prost(oneof = "initialize_request::Contents", tags = "1, 2")]
+    pub contents: ::core::option::Option<initialize_request::Contents>,
+}
+/// Nested message and enum types in `InitializeRequest`.
+pub mod initialize_request {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Contents {
+        #[prost(message, tag = "1")]
+        Ping(super::Ping),
+        #[prost(enumeration = "super::InitializeType", tag = "2")]
+        Initialize(i32),
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct StreamRequest {
+    #[prost(oneof = "stream_request::Contents", tags = "1, 2")]
+    pub contents: ::core::option::Option<stream_request::Contents>,
+}
+/// Nested message and enum types in `StreamRequest`.
+pub mod stream_request {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Contents {
+        #[prost(message, tag = "1")]
+        Ping(super::Ping),
+        #[prost(message, tag = "2")]
+        GetStream(super::GetStream),
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct EmulatorRequest {
+    #[prost(oneof = "emulator_request::Contents", tags = "1, 3, 4, 5, 6")]
+    pub contents: ::core::option::Option<emulator_request::Contents>,
+}
+/// Nested message and enum types in `EmulatorRequest`.
+pub mod emulator_request {
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Contents {
@@ -129,29 +181,6 @@ pub mod request {
         GetState(super::GetState),
         #[prost(message, tag = "6")]
         SetState(super::SetState),
-    }
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Response {
-    #[prost(oneof = "response::Contents", tags = "1, 3, 4, 5, 6")]
-    pub contents: ::core::option::Option<response::Contents>,
-}
-/// Nested message and enum types in `Response`.
-pub mod response {
-    #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Contents {
-        #[prost(message, tag = "1")]
-        Pong(super::Pong),
-        #[prost(message, tag = "3")]
-        FrameDetails(super::FrameDetails),
-        #[prost(message, tag = "4")]
-        ActionResult(super::ActionResult),
-        #[prost(message, tag = "5")]
-        StateDetails(super::StateDetails),
-        #[prost(message, tag = "6")]
-        SetStateResult(super::SetStateResult),
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
@@ -176,6 +205,32 @@ impl Renderer {
         match value {
             "RENDERER_SOFTWARE" => Some(Self::Software),
             "RENDERER_HARDWARE" => Some(Self::Hardware),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum InitializeType {
+    CreateEmulator = 0,
+    OpenStream = 1,
+}
+impl InitializeType {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            InitializeType::CreateEmulator => "CREATE_EMULATOR",
+            InitializeType::OpenStream => "OPEN_STREAM",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "CREATE_EMULATOR" => Some(Self::CreateEmulator),
+            "OPEN_STREAM" => Some(Self::OpenStream),
             _ => None,
         }
     }
