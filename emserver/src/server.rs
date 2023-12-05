@@ -160,8 +160,6 @@ async fn nes_instance(rom: Rom, mut delimiter: Delimiter, mut stream: TcpStream,
     let mut instance = Box::new(NesInstance::new(&rom));
 
     loop {
-        read_into(&mut delimiter, &mut stream).await?;
-
         while let Some(packet) = delimiter.pop() {
             let request = match EmulatorRequest::decode(&packet[..]) {
                 Ok(n) => n,
@@ -257,13 +255,13 @@ async fn nes_instance(rom: Rom, mut delimiter: Delimiter, mut stream: TcpStream,
                 }
             }
         }
+
+        read_into(&mut delimiter, &mut stream).await?;
     }
 }
 
 async fn stream_instance(mut delimiter: Delimiter, mut stream: TcpStream, states: StreamStates) -> Result<()> {
     loop {
-        read_into(&mut delimiter, &mut stream).await?;
-
         while let Some(packet) = delimiter.pop() {
             let request = match StreamRequest::decode(&packet[..]) {
                 Ok(n) => n,
@@ -297,6 +295,8 @@ async fn stream_instance(mut delimiter: Delimiter, mut stream: TcpStream, states
                 }
             }
         }
+
+        read_into(&mut delimiter, &mut stream).await?;
     }
 }
 
@@ -304,8 +304,6 @@ async fn client_connection(rom: Rom, mut stream: TcpStream, states: StreamStates
     let mut delimiter = Delimiter::default();
 
     loop {
-        read_into(&mut delimiter, &mut stream).await?;
-
         while let Some(packet) = delimiter.pop() {
             let request = match InitializeRequest::decode(&packet[..]) {
                 Ok(n) => n,
@@ -334,6 +332,8 @@ async fn client_connection(rom: Rom, mut stream: TcpStream, states: StreamStates
                 },
             }
         }
+
+        read_into(&mut delimiter, &mut stream).await?;
     }
 }
 

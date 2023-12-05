@@ -105,7 +105,7 @@ fn main() {
                     RenderAction::SendFrame(frame) => {
                         let mut frame_data = frame_arc.lock().unwrap();
 
-                        *frame_data = Some(frame);
+                        *frame_data = Some(*frame);
 
                         window_arc.request_redraw();
 
